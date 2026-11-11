@@ -26,7 +26,7 @@ function check(R, label, ref, face = 1, rel = 0) {
   expect("standing height m", R.H[R.ev.stand], 1.75, 0.02 + rel * 1.75);
   expect("most back in pull cm", -R.X[R.ev.back] * 100, 5, 0.8);
   expect("catch vs start cm", R.X[R.ev.catch] * 100, -2, 0.8);
-  if (R.type !== "snatch") { fails++; console.log("FAIL type", R.type); }
+  if (R.lift !== "snatch") { fails++; console.log("FAIL lift", R.lift); }
   if (!R.squat) { fails++; console.log("FAIL catch should be squat"); }
   if (R.facing !== face) { fails++; console.log("FAIL facing", R.facing); }
   if (ref.split && R.splitBy === null) { fails++; console.log("FAIL first pull / transition not split"); }

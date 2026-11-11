@@ -13,7 +13,7 @@ const camera = arg("camera", null), pose = arg("pose", "full"), dark = process.a
 const T = truthPath && truthPath !== "-" ? JSON.parse(readFileSync(truthPath, "utf8")) : null;
 const tapArg = arg("tap", null);
 
-const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json" };
+const TYPES = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json", ".webmanifest": "application/manifest+json", ".wasm": "application/wasm", ".png": "image/png" };
 const server = http.createServer((req, res) => {
   const p = join(appDir, decodeURIComponent(req.url.split("?")[0]) === "/" ? "index.html" : decodeURIComponent(req.url.split("?")[0]));
   if (!p.startsWith(appDir) || !existsSync(p) || statSync(p).isDirectory()) { res.writeHead(404); return res.end(); }

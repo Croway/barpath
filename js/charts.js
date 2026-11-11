@@ -50,29 +50,33 @@ function label(ctx, text, x, y, side, w) {
   ctx.fillText(text, side === "left" ? x - 9 : x + 9, y);
 }
 
-/** the part of the recording worth plotting: just before lift-off to just after standing (or the jerk) */
-export function span(R) {
-  const end = R.jerk ? R.jerk.iCatch + Math.round(0.6 * R.fs) : R.ev.stand + Math.round(0.25 * R.fs);
-  return [Math.max(0, R.ev.liftoff - Math.round(0.2 * R.fs)), Math.min(R.n - 1, end)];
-}
+/** the part of the recording worth plotting (the analysis decides: the pull, or the whole set) */
+export const span = (R) => R.span;
+const where = (R, i) => {
+  const k = R.stageOf[i];
+  if (k >= 0) return `${R.reps ? `Rep ${R.stages[k].rep} · ` : ""}${R.stages[k].name}`;
+  return i < R.t0i ? "Before the lift" : R.reps && R.repOf[i] ? `Rep ${R.repOf[i]}` : R.reps ? "Between reps" : "After the lift";
+};
+export { where };
 
 /* ------------------------------------------------------------------ bar path */
 export function drawPath(canvas, R, cursor) {
   const h = clamp(Math.round(canvas.parentElement.clientWidth * 1.05), 320, 440);
   const { ctx, w } = setup(canvas, h);
   const [i0, i1] = span(R);
-  let ext = 10, top = 0, vTop = 0;
-  for (let i = i0; i <= i1; i++) { ext = Math.max(ext, Math.abs(R.X[i]) * 100 + 3); top = Math.max(top, R.H[i]); vTop = Math.max(vTop, R.speed[i]); }
+  let ext = 10, top = 0, bot = 0, vTop = 0;
+  for (let i = i0; i <= i1; i++) { ext = Math.max(ext, Math.abs(R.X[i]) * 100 + 3); top = Math.max(top, R.H[i]); bot = Math.min(bot, R.H[i]); vTop = Math.max(vTop, R.speed[i]); }
   ext = Math.ceil(ext / 5) * 5;
   top = Math.ceil((top + 0.08) * 4) / 4;
-  vTop = Math.max(1.5, Math.ceil(vTop * 4) / 4);
-  const m = { l: 38, r: 10, t: 16, b: 34 };
+  bot = bot < 0 ? Math.floor((bot - 0.08) * 4) / 4 : 0; // heights below the start (a squat, a bench) go negative
+  vTop = Math.max(1, Math.ceil(vTop * 4) / 4);
+  const m = { l: 38, r: 10, t: 26, b: 34 };
   const px = (xcm) => m.l + ((xcm + ext) / (2 * ext)) * (w - m.l - m.r);
-  const py = (hm) => h - m.b - (hm / top) * (h - m.t - m.b);
+  const py = (hm) => h - m.b - ((hm - bot) / (top - bot)) * (h - m.t - m.b);
 
   // grid, axes
   ctx.lineWidth = 1;
-  for (const v of ticks(0, top, 6)) {
+  for (const v of ticks(bot, top, 6)) {
     ctx.strokeStyle = v === 0 ? tok("--axis") : tok("--grid");
     ctx.beginPath(); ctx.moveTo(m.l, Math.round(py(v)) + 0.5); ctx.lineTo(w - m.r, Math.round(py(v)) + 0.5); ctx.stroke();
     ctx.fillStyle = tok("--muted"); ctx.textAlign = "right"; ctx.textBaseline = "middle";
@@ -85,9 +89,9 @@ export function drawPath(canvas, R, cursor) {
     ctx.fillText(v > 0 ? `+${v}` : fmt(v, 0), px(v), h - m.b + 5);
   }
   ctx.fillStyle = tok("--muted"); ctx.textBaseline = "top";
-  ctx.textAlign = "left"; ctx.fillText("m", 4, 2);
-  ctx.textAlign = "left"; ctx.fillText("← back", m.l, h - 13);
-  ctx.textAlign = "right"; ctx.fillText("forward →", w - m.r, h - 13);
+  ctx.textAlign = "left"; ctx.fillText(R.axis.h, 4, 2);
+  ctx.textAlign = "left"; ctx.fillText(R.axis.x[0], m.l, h - 13);
+  ctx.textAlign = "right"; ctx.fillText(R.axis.x[1], w - m.r, h - 13);
   ctx.textAlign = "center"; ctx.fillText("cm", (m.l + w - m.r) / 2, h - 13);
 
   // the path, coloured by speed
@@ -98,15 +102,11 @@ export function drawPath(canvas, R, cursor) {
     ctx.beginPath(); ctx.moveTo(px(R.X[i - 1] * 100), py(R.H[i - 1])); ctx.lineTo(px(R.X[i] * 100), py(R.H[i])); ctx.stroke();
   }
 
-  // a few events, labelled sparingly; sides alternate so peak speed and catch don't collide
+  // the analysis's marks: labelled sparingly (one per kind), the rest as plain dots
   const ink = tok("--ink");
-  const evs = [["liftoff", "Lift-off", "right"], ["vmax", "Peak speed", "left"], ["peak", "Peak height", "right"], ["catch", "Catch", "right"]];
-  for (const [k, name, side] of evs) {
-    const i = R.ev[k];
-    if (i === null || i === undefined) continue;
-    if (k === "peak" && i === R.ev.catch) continue; // met on the way up: one point, labelled Catch
-    dot(ctx, px(R.X[i] * 100), py(R.H[i]), 4, ink);
-    label(ctx, name, px(R.X[i] * 100), py(R.H[i]), side, w);
+  for (const mk of R.marks) {
+    dot(ctx, px(R.X[mk.i] * 100), py(R.H[mk.i]), mk.name ? 4 : 3, ink);
+    if (mk.name) label(ctx, mk.name, px(R.X[mk.i] * 100), py(R.H[mk.i]), mk.side, w);
   }
   if (cursor !== null && cursor >= i0 && cursor <= i1) dot(ctx, px(R.X[cursor] * 100), py(R.H[cursor]), 5, tok("--accent"));
   return { i0, i1, px, py, vTop, stops };
@@ -127,11 +127,11 @@ export function drawSpeed(canvas, R, cursor) {
   const h = 240;
   const { ctx, w } = setup(canvas, h);
   const [i0, i1] = span(R);
-  const t = (i) => (i - R.ev.liftoff) / R.fs;
+  const t = (i) => (i - R.t0i) / R.fs;
   let lo = 0, hi = 0;
   for (let i = i0; i <= i1; i++) { lo = Math.min(lo, R.vy[i]); hi = Math.max(hi, R.vy[i]); }
   lo = Math.min(-0.5, Math.floor(lo * 2) / 2); hi = Math.ceil((hi + 0.15) * 2) / 2;
-  const m = { l: 38, r: 10, t: 14, b: 26 };
+  const m = { l: 38, r: 10, t: 24, b: 26 };
   const px = (s) => m.l + ((s - t(i0)) / (t(i1) - t(i0))) * (w - m.l - m.r);
   const py = (v) => h - m.b - ((v - lo) / (hi - lo)) * (h - m.t - m.b);
 
@@ -154,7 +154,7 @@ export function drawSpeed(canvas, R, cursor) {
     ctx.fillText(`${fmt(v, 1)}`, px(v), h - m.b + 5);
   }
   ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillText("m/s", 4, 0);
-  ctx.textAlign = "right"; ctx.fillText("s from lift-off", w - m.r, 0);
+  ctx.textAlign = "right"; ctx.fillText(R.axis.t, w - m.r, 0);
 
   ctx.strokeStyle = tok("--accent"); ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
   ctx.beginPath();
@@ -185,9 +185,9 @@ export function fillTip(tip, R, i) {
   tip.append(b);
   const k = R.stageOf[i];
   const rows = [
-    [`${R.H[i].toFixed(2)} m high · ${R.X[i] >= 0 ? "+" : "−"}${Math.abs(R.X[i] * 100).toFixed(1)} cm`, null],
-    [`${((i - R.ev.liftoff) / R.fs).toFixed(2)} s from lift-off`, null],
-    [k >= 0 ? R.stages[k].name : i < R.ev.liftoff ? "Set-up" : "After the lift", k >= 0 ? `--s${R.stages[k].slot}` : null],
+    [`${R.H[i] < 0 ? "−" : ""}${Math.abs(R.H[i]).toFixed(2)} ${R.axis.h} · ${R.X[i] >= 0 ? "+" : "−"}${Math.abs(R.X[i] * 100).toFixed(1)} cm`, null],
+    [`${((i - R.t0i) / R.fs).toFixed(2)} ${R.axis.t}`, null],
+    [where(R, i), k >= 0 ? `--s${R.stages[k].slot}` : null],
   ];
   for (const [text, color] of rows) {
     const r = document.createElement("div");
@@ -196,5 +196,37 @@ export function fillTip(tip, R, i) {
     r.append(document.createTextNode(text));
     tip.append(r);
   }
+}
+
+/* ------------------------------------------------------------------ mean lifting speed per rep */
+/** columns, one per rep, value at the cap; the rep under the cursor is the accent, the others a lighter step */
+export function drawReps(canvas, R, curRep) {
+  const h = 200;
+  const { ctx, w } = setup(canvas, h);
+  const reps = R.reps, m = { l: 38, r: 10, t: 28, b: 26 };
+  const top = Math.max(0.5, Math.ceil(Math.max(...reps.map((r) => r.mean)) * 1.15 * 4) / 4);
+  const slot = (w - m.l - m.r) / reps.length, bw = Math.min(24, slot * 0.6);
+  const py = (v) => h - m.b - (v / top) * (h - m.t - m.b);
+  ctx.lineWidth = 1;
+  for (const v of ticks(0, top, 4)) {
+    ctx.strokeStyle = v === 0 ? tok("--axis") : tok("--grid");
+    ctx.beginPath(); ctx.moveTo(m.l, Math.round(py(v)) + 0.5); ctx.lineTo(w - m.r, Math.round(py(v)) + 0.5); ctx.stroke();
+    ctx.fillStyle = tok("--muted"); ctx.textAlign = "right"; ctx.textBaseline = "middle"; ctx.fillText(fmt(v, 2), m.l - 6, py(v));
+  }
+  ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillText("m/s", 4, 0);
+  const stops = rampStops(), base = py(0);
+  const cols = [];
+  reps.forEach((r, k) => {
+    const cx = m.l + slot * (k + 0.5), y = py(r.mean), x = cx - bw / 2, rad = Math.min(4, bw / 2, base - y);
+    ctx.fillStyle = r.n === curRep || curRep === null ? tok("--accent") : rampAt(stops, 0.15);
+    ctx.beginPath(); // 4px rounded data end, square at the baseline
+    ctx.moveTo(x, base); ctx.lineTo(x, y + rad); ctx.quadraticCurveTo(x, y, x + rad, y); ctx.lineTo(x + bw - rad, y);
+    ctx.quadraticCurveTo(x + bw, y, x + bw, y + rad); ctx.lineTo(x + bw, base); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = tok("--ink-2"); ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    if (slot >= 30) ctx.fillText(r.mean.toFixed(2), cx, y - 3);
+    ctx.fillStyle = tok("--muted"); ctx.textBaseline = "top"; ctx.fillText(String(r.n), cx, base + 5);
+    cols.push({ x0: cx - slot / 2, x1: cx + slot / 2, rep: r });
+  });
+  return { cols };
 }
 export { STAGES };

@@ -1,6 +1,7 @@
-/* A synthetic snatch, filmed side-on, with a known bar path (the ground truth for the tests).
+/* A synthetic lift, filmed side-on, with a known bar path (the ground truth for the tests): a snatch, or with
+ * --lift squat three squats from the shoulders, each rep slower to stand up than the last.
  *
- *   node test/synth.mjs out.mp4 [--fps 60] [--w 1280 --h 720] [--slowmo 1]
+ *   node test/synth.mjs out.mp4 [--fps 60] [--w 1280 --h 720] [--slowmo 1] [--lift snatch|squat]
  *
  * Writes out.mp4 and out.truth.json (the plate centre per frame, in pixels and metres).
  * The plate spins and carries markings, a dark "body" moves behind it, the background
@@ -13,13 +14,26 @@ const args = process.argv.slice(2);
 const out = args.find((a) => !a.startsWith("--") && !/^\d/.test(a)) || "synth.mp4";
 const opt = (k, d) => { const i = args.indexOf("--" + k); return i >= 0 ? Number(args[i + 1]) : d; };
 const FPS = opt("fps", 60), W = opt("w", 1280), H = opt("h", 720), SLOW = opt("slowmo", 1), FACE = opt("face", 1);
+const LIFT = (() => { const i = args.indexOf("--lift"); return i >= 0 ? args[i + 1] : "snatch"; })();
 
 // ---- the lift: (t s, height m, vertical speed m/s) and (t, forward m, forward speed) keyframes, lifter facing +x
-const YK = [[0, 0.225, 0], [0.8, 0.225, 0], [1.35, 0.52, 1.2], [1.47, 0.655, 1.02], [1.62, 0.89, 1.9], [1.81, 1.07, 0],
+let YK = [[0, 0.225, 0], [0.8, 0.225, 0], [1.35, 0.52, 1.2], [1.47, 0.655, 1.02], [1.62, 0.89, 1.9], [1.81, 1.07, 0],
   [2.0, 0.95, -0.2], [2.1, 0.94, 0], [2.4, 0.94, 0], [3.4, 1.75, 0], [4.5, 1.75, 0]];
-const XK = [[0, 0, 0], [0.8, 0, 0], [1.35, -0.04, -0.03], [1.47, -0.05, 0], [1.62, -0.01, 0.35], [1.81, 0.03, 0.05],
+let XK = [[0, 0, 0], [0.8, 0, 0], [1.35, -0.04, -0.03], [1.47, -0.05, 0], [1.62, -0.01, 0.35], [1.81, 0.03, 0.05],
   [2.0, 0.0, -0.25], [2.1, -0.02, 0], [2.4, -0.02, 0], [3.4, -0.01, 0], [4.5, -0.01, 0]];
-const DUR = 4.5;
+let DUR = 4.5;
+export const SQUAT = { top: 1.45, bottom: 0.75, down: 1.0, pause: 0.15, up: [0.8, 0.95, 1.1], rest: 0.6 };
+if (LIFT === "squat") {
+  // bar on the shoulders at 1.45 m, down to 0.75 m, a short pause, back up; zero speed at every keyframe
+  const q = SQUAT;
+  YK = [[0, q.top, 0], [0.8, q.top, 0]];
+  let t = 0.8;
+  for (const up of q.up) {
+    YK.push([(t += q.down), q.bottom, 0], [(t += q.pause), q.bottom, 0], [(t += up), q.top, 0], [(t += q.rest), q.top, 0]);
+  }
+  XK = [[0, 0, 0], [t, 0, 0]];
+  DUR = t;
+}
 function hermite(K, t) {
   t = Math.max(K[0][0], Math.min(K[K.length - 1][0], t));
   let i = 0;
@@ -51,7 +65,7 @@ rect(W * 0.72, H * 0.15, W * 0.86, H * 0.4, [40, 90, 160]); rect(W * 0.74, H * 0
 rect(0, FLOOR - 3, W, FLOOR, [50, 50, 50]);
 
 // ---- per frame: background + a dark "body" behind the plate + the plate, averaged over the exposure
-const plateSpin = (t) => (t < 1.6 ? 0 : Math.min(1, (t - 1.6) / 0.4) * 2.6); // radians, the bar turns over
+const plateSpin = (t) => (LIFT !== "snatch" || t < 1.6 ? 0 : Math.min(1, (t - 1.6) / 0.4) * 2.6); // radians, the bar turns over
 function drawFrame(t, buf) {
   const sub = [-1 / 240, 0, 1 / 240]; // 1/120 s exposure, 3 sub-samples
   const acc = new Float32Array(W * H * 3);

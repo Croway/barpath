@@ -30,6 +30,7 @@
       <li><b>Square to the bar:</b> the far plate hides behind the near one, which looks round.</li>
       <li><b>1080p, 60 fps.</b> Slow motion works too; set how much it's slowed.</li>
     </ol>
+    <p class="hint">Snatch, clean, squat, deadlift, bench press and overhead press are recognised on their own.</p>
     <div class="actions">
       <button id="btnRecord" class="primary" type="button">Record</button>
       <label class="button" for="fileInput">Choose a video</label>
@@ -70,7 +71,7 @@
     </div>
 
     <div id="mark" class="panel">
-      <p class="instr" id="markInstr">Scrub to the set-up, bar on the floor, then <b>tap the middle of the plate nearest the camera</b>.</p>
+      <p class="instr" id="markInstr">Scrub to just before the lift starts, then <b>tap the middle of the plate nearest the camera</b>.</p>
       <div class="field" id="sizeField" hidden>
         <label for="plateSize">Circle size</label>
         <input id="plateSize" type="range" min="70" max="130" value="100">
@@ -102,9 +103,23 @@
       <div class="res-head">
         <h2 id="resTitle"></h2>
         <p class="hint" id="resSub"></p>
+        <label class="inline lift-pick">Lift
+          <select id="liftSel">
+            <option value="auto">Auto</option><option value="snatch">Snatch</option><option value="clean">Clean</option>
+            <option value="deadlift">Deadlift</option><option value="squat">Squat</option>
+            <option value="bench">Bench press</option><option value="press">Overhead press</option>
+          </select>
+        </label>
       </div>
       <div class="tiles" id="tiles"></div>
       <ul class="notes" id="notes"></ul>
+
+      <article class="card" id="repsCard" hidden>
+        <h3>Reps · mean lifting speed</h3>
+        <p class="sub">Each rep's average speed on the way up. Tap a rep to jump to it.</p>
+        <div class="chart"><canvas id="repsChart" tabindex="0" aria-label="Mean lifting speed per rep"></canvas></div>
+        <table class="table reps" id="repsTable"></table>
+      </article>
 
       <article class="card">
         <h3>Bar path · side view</h3>
@@ -120,7 +135,7 @@
       </article>
 
       <article class="card">
-        <h3>Stage timing</h3>
+        <h3 id="stageTitle">Stage timing</h3>
         <div class="segbar" id="stageBar"></div>
         <ul class="legend" id="stageLegend"></ul>
       </article>
@@ -138,9 +153,6 @@
 
       <div class="actions wrap">
         <button id="btnFlip" type="button">Flip direction</button>
-        <label class="inline">Lift
-          <select id="typeSel"><option value="auto">Auto</option><option value="snatch">Snatch</option><option value="clean">Clean</option></select>
-        </label>
         <button id="btnCsv" type="button">Export CSV</button>
         <button id="btnJson" type="button">Export JSON</button>
         <button id="btnSaveVideo" type="button" hidden>Save video</button>

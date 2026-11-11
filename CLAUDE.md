@@ -13,7 +13,7 @@ nothing is uploaded.
 
 ```bash
 npm run vendor && npm run serve            # dev server on :8765
-npm test                                   # analysis on ideal data (must pass)
+npm test                                   # snatch on ideal data + squat/deadlift/bench/press on a synthetic lifter (must pass)
 node test/synth.mjs /tmp/s.mp4 && node test/track.test.mjs /tmp/s.mp4 && node test/analysis.test.mjs /tmp/s.mp4
 node test/e2e.mjs . /tmp/s.mp4 /tmp/s.truth.json /tmp/out           # headless Chrome at S23 size
 tools/phone.sh <adb device>                # serve to the phone as http://localhost:8765 and open it
@@ -26,7 +26,16 @@ npm run icons                              # re-render PNG icons from icons/*.sv
 itself when processing falls behind) → `plate.js` crops a region around the predicted plate, scaled so the plate
 is 36 px in radius, and finds it → `pose.js` adds 33 landmarks per frame → `analysis.js` turns samples into the
 lift → `app.js` renders. `analyse()` is pure and re-runs instantly when settings change (plate size, slow-motion
-factor, facing, lift type); only a new plate mark or pose model needs tracking again.
+factor, facing, lift); only a new plate mark or pose model needs tracking again.
+
+`analyse()` = `prepare()` (grid, smoothing, per-frame scale, pose access) → `recognise()` → `olympic()` (snatch,
+clean, jerk: one pull) or `reps()` (squat, bench go down first; deadlift, press go up first). Both return the same
+shape for the UI: `title, tiles, marks, span, t0i, axis, stages, metrics, checks, notes` (+ `reps`, `repOf` for
+rep lifts). Rep lifts use stage slots 1–3 only (validated against each other in any order).
+
+Recognition: lying = flat torso AND bar above the shoulders (a deadlift set-up is flat too); a pull is told by
+where the bar FINISHES on the body (hips = deadlift, shoulders/overhead = clean/snatch), not by speed; squat vs
+press by the bar's biggest trip from rest, not its first move (unracking lifts the bar before a squat).
 
 ### Decisions that matter (each was a real failure)
 - **Tap detection** picks the circle with the best `coverage × tightness`, not the strongest votes (the hub and
@@ -37,6 +46,8 @@ factor, facing, lift type); only a new plate mark or pose model needs tracking a
   size on screen changes (camera close or tilted). Coasting on the last velocity is capped at 0.1 s.
 - **Scale is per frame** (`R.rs`): each frame's movement is converted at that frame's plate size.
 - **Start position is where the bar sat just before lift-off**, not the first frame (lifters roll the bar in).
+- **Hips first / chest drop**: the MOST the torso tips forward in the first third of the lift, not its lean at
+  the one-third point (while the hips shoot up the bar barely moves, and the torso has recovered by then).
 - **Catch**: if the bar drops after its peak, the catch is its lowest point within 1 s; if it never drops (met on
   the way up), it's where the bar was slowest. Standing = the bar stops rising for good. These windows keep a bar
   dropped after the lift out of the results.

@@ -124,6 +124,13 @@ input[type="range"] { width: 100%; accent-color: var(--accent); min-height: 32px
 .seg button[aria-pressed="true"] { background: var(--wash); font-weight: 650; box-shadow: inset 0 -2px 0 var(--accent); }
 .res-head { margin: 18px 0 4px; }
 .res-head h2 { font-size: 22px; font-weight: 650; }
+.res-head .lift-pick { margin-top: 8px; }
+.res-head .lift-pick select { min-height: 36px; }
+.table.reps th, .table.reps td { text-align: right; padding-left: 8px; }
+.table.reps th:first-child, .table.reps td:first-child { text-align: left; padding-left: 0; }
+.table.reps th { padding-top: 10px; text-transform: none; letter-spacing: 0; }
+.table.reps td { font-variant-numeric: tabular-nums; }
+.table.reps tr.on td { font-weight: 650; }
 
 .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 @media (min-width: 620px) { .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }

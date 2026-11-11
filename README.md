@@ -1,8 +1,18 @@
 # Bar Path
 
-Weightlifting analysis from one phone. Film a snatch or clean side-on and get the bar path, bar speed through
-each stage of the lift, peak height, the catch, and a few coaching checks — on the phone, offline, nothing
-uploaded. An installable web app (PWA), built for a Galaxy S23 in Chrome.
+Weightlifting analysis from one phone. Film a lift side-on and get the bar path, bar speed and coaching checks —
+on the phone, offline, nothing uploaded. An installable web app (PWA), built for a Galaxy S23 in Chrome.
+
+| Lift | What you get |
+|---|---|
+| Snatch, clean (& jerk) | stages (first pull, transition, second pull, turnover, recovery), peak speed and height, drop, catch position, squat vs power catch; checks: off the floor, second pull loop, transition, catch |
+| Squat | reps, mean / peak lifting speed per rep, velocity loss, tempo, sticking point; checks: depth (hip crease vs knee), chest dropping out of the bottom, bar path over mid-foot |
+| Deadlift | the same per rep; checks: hips shooting up, bar drifting off the legs, lockout, leaning back |
+| Bench press | the same per rep; checks: J-curve (touch → over the shoulders), touch point consistency, bounce |
+| Overhead press (push press / jerk) | the same per rep, dip depth; checks: lockout, leaning back, bar looping around the face |
+
+The lift is recognised on its own — from the body when it's tracked (lying down; bar at the floor, hips or
+shoulders; where the bar finishes), from the bar alone otherwise — and can be changed under **Lift**.
 
 <img src="icons/icon.svg" width="96" alt="">
 
@@ -14,9 +24,10 @@ uploaded. An installable web app (PWA), built for a Galaxy S23 in Chrome.
    the scale — per frame, because it changes when the camera is close or tilted.
 2. **Body.** MediaPipe Pose Landmarker (bundled, runs on the GPU) gives the knee and hip angles, which way the
    lifter faces, snatch vs clean, and squat vs power catch.
-3. **Lift.** Positions are smoothed (10 Hz Butterworth, both directions), differentiated, and split into
-   first pull → transition → second pull → turnover → recovery. The first-pull/transition split comes from
-   the knees (or, without the body, from the dip in bar speed).
+3. **Lift.** Positions are smoothed (10 Hz Butterworth, both directions) and differentiated. Snatch and clean
+   are split into first pull → transition → second pull → turnover → recovery (the first-pull/transition split
+   comes from the knees, or without the body from the dip in bar speed). Squat, deadlift, bench and press are
+   split into reps — each trip away from the rest position and back — with lowering, pause and lifting phases.
 4. **Results.** Replay with the bar trail coloured by speed, the side-view bar path, bar speed over time,
    stage timing, checks and every measurement; CSV/JSON export.
 
@@ -43,7 +54,8 @@ to **Bar Path** to open it straight in the app.
 ## Test
 
 ```bash
-npm test                                            # analysis against a known lift: 30/60/240 fps, drop-outs, mirrored
+npm test                                            # snatch at 30/60/240 fps, drop-outs, mirrored; squat, deadlift, bench, press on a synthetic lifter
+node test/synth.mjs /tmp/q.mp4 --lift squat         # synthetic squat video (3 reps, slowing down)
 node test/synth.mjs /tmp/s.mp4                      # synthetic side-on snatch video + ground truth
 node test/track.test.mjs /tmp/s.mp4                 # tracker vs truth (crop + scale per frame like the browser)
 node test/analysis.test.mjs /tmp/s.mp4              # tracked → analysis vs truth
@@ -71,6 +83,9 @@ node test/e2e.mjs . real.mp4 - /tmp/out --at 11 --tap 307,551      # a real clip
 ## Limits
 
 One camera sees front/back and up/down only: no sideways drift, bar tilt, or left/right differences. Heights
-assume the bar starts on the floor. Checks use starting thresholds meant to be tuned with a coach.
+for snatch, clean and deadlift are from the floor (the bar starts there); for the others they're from the start.
+Checks use starting thresholds meant to be tuned with a coach. Without body tracking a bench looks like a squat
+to the bar alone, and a strict press like a deadlift: pick the lift. Squat, deadlift, bench and press have so
+far been tested on a synthetic lifter, not on real clips.
 
 MediaPipe is Apache-2.0 (`vendor/mediapipe/LICENSE` after `npm run vendor`).

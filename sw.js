@@ -4,7 +4,7 @@
  *  - vendor/ (MediaPipe runtime and pose models, ~19 MB precached): cache first; they never change for a version.
  *  - POST ./share (the manifest's share target): keeps the shared video, then opens the app with ?shared=1.
  */
-const SHELL = "barpath-shell-v1";
+const SHELL = "barpath-shell-v2";
 const VENDOR = "barpath-vendor-0.10.21";
 const SHARE = "barpath-share";
 const SHELL_FILES = [
