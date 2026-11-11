@@ -1,15 +1,33 @@
 // The same flow in Chrome on the phone, over ONE tab's DevTools socket (never attaches to the whole browser).
 // Needs: adb reverse tcp:8765 tcp:8765, the app open at http://localhost:8765 on the phone, and
 //   adb forward tcp:9333 localabstract:chrome_devtools_remote
-//   node test/phone.mjs http://localhost:9333 http://localhost:8765 <video url on the app server> <at s> <x,y> <out dir> [pose]
+//   node test/phone.mjs http://localhost:9333 http://localhost:8765 <video url on the app server | shared> <at s> <x,y> <out dir> [pose]
+// "file:<local path>": attach to the installed app and hand it the video over DevTools (no server needed).
+// "shared": the video was shared to the installed app (Android share sheet / am start SEND); attach to the
+// installed app's window (display-mode: standalone) and use the video it opened.
 import { writeFileSync } from "node:fs";
 
 const [base, prefix, videoUrl, at, tap, outDir, pose = "full"] = process.argv.slice(2);
-const targets = await (await fetch(`${base}/json/list`)).json();
-const target = targets.find((t) => t.type === "page" && t.url.startsWith(prefix));
-if (!target) throw new Error(`no tab at ${prefix}`);
-const ws = new WebSocket(target.webSocketDebuggerUrl);
-await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
+const shared = videoUrl === "shared" || videoUrl.startsWith("file:");
+const inject = videoUrl.startsWith("file:") ? (await import("node:fs")).readFileSync(videoUrl.slice(5)).toString("base64") : null;
+const targets = (await (await fetch(`${base}/json/list`)).json()).filter((t) => t.type === "page" && t.url.startsWith(prefix));
+if (!targets.length) throw new Error(`no tab at ${prefix}`);
+// an installed app's window and Chrome tabs can share the URL: probe each for display-mode when it matters
+async function open(t) {
+  const sock = new WebSocket(t.webSocketDebuggerUrl);
+  await Promise.race([new Promise((r) => (sock.onopen = r)), new Promise((_, j) => setTimeout(() => j(new Error("ws timeout")), 8000))]);
+  return sock;
+}
+let ws = null;
+for (const t of targets) {
+  const sock = await open(t).catch(() => null);
+  if (!sock) continue;
+  if (!shared) { ws = sock; break; }
+  const v = await new Promise((r) => { sock.onmessage = (m) => r(JSON.parse(m.data)); sock.send(JSON.stringify({ id: 1, method: "Runtime.evaluate", params: { expression: 'matchMedia("(display-mode: standalone)").matches', returnByValue: true } })); setTimeout(() => r(null), 5000); });
+  if (v?.result?.result?.value) { ws = sock; break; }
+  sock.close();
+}
+if (!ws) throw new Error(shared ? "the installed app's window isn't open" : "no reachable tab");
 let id = 0;
 const pending = new Map();
 ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && pending.has(d.id)) { const { res, rej } = pending.get(d.id); pending.delete(d.id); d.error ? rej(new Error(d.error.message)) : res(d.result); } };
@@ -21,16 +39,22 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 await send("Page.enable");
 await send("Runtime.enable");
-await ev(`localStorage.setItem("barpath.settings", JSON.stringify({ poseModel: ${JSON.stringify(pose)} })); true`);
-await send("Page.reload", { ignoreCache: true });
-await sleep(1500);
+if (!shared) {
+  await ev(`localStorage.setItem("barpath.settings", JSON.stringify({ poseModel: ${JSON.stringify(pose)} })); true`);
+  await send("Page.reload", { ignoreCache: true });
+  await sleep(1500);
+}
 await until(`!!document.getElementById("fileInput") && !!window.__barpath`);
+console.log("app:", await ev(`(async () => JSON.stringify({ standalone: matchMedia("(display-mode: standalone)").matches, controlledBySW: !!navigator.serviceWorker.controller, server: await fetch("index.html", { method: "HEAD", cache: "no-store" }).then(() => "reachable", () => "unreachable (running from the app cache)") }))()`));
 console.log("screen:", await ev(`JSON.stringify({ w: innerWidth, h: innerHeight, dpr: devicePixelRatio, secure: isSecureContext, ua: navigator.userAgent.slice(0, 60) })`));
 console.log("record button:", await ev(`document.getElementById("recordHint").textContent || "in-app recording available"`));
 await shot("p01-start");
 
-// a picked file, as the file chooser would deliver it
-await ev(`(async () => { const b = await (await fetch(${JSON.stringify(videoUrl)})).blob(); const f = new File([b], "Snatch.mp4", { type: "video/mp4" });
+// a picked file, as the file chooser would deliver it (or, when shared, the one the app already opened)
+// file:<path>: the bytes are handed over through DevTools, so no server is needed (offline test of the installed app)
+if (inject) await ev(`(() => { const s = atob(${JSON.stringify(inject)}), a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i);
+  const dt = new DataTransfer(); dt.items.add(new File([a], "Snatch.mp4", { type: "video/mp4" })); const i = document.getElementById("fileInput"); i.files = dt.files; i.dispatchEvent(new Event("change")); return true; })()`);
+if (!shared) await ev(`(async () => { const b = await (await fetch(${JSON.stringify(videoUrl)})).blob(); const f = new File([b], "Snatch.mp4", { type: "video/mp4" });
   const dt = new DataTransfer(); dt.items.add(f); const i = document.getElementById("fileInput"); i.files = dt.files; i.dispatchEvent(new Event("change")); return true; })()`);
 await until(`/fps/.test(document.getElementById("videoInfo").textContent)`, 30000);
 console.log("video:", await ev(`document.getElementById("videoInfo").textContent`));
