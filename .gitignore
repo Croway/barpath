@@ -1,0 +1,12 @@
+node_modules/
+# MediaPipe runtime + pose models (~33 MB): fetched by tools/fetch-vendor.sh
+vendor/
+# test videos and outputs stay out of the repo
+*.mp4
+*.mov
+*.webm
+*.y4m
+*.truth.json
+*.samples.json
+out/
+.DS_Store

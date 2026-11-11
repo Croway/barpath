@@ -1,0 +1,24 @@
+{
+  "id": "./",
+  "name": "Bar Path",
+  "short_name": "Bar Path",
+  "description": "Weightlifting bar path, bar speed and lift stages from one phone video.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0c2433",
+  "theme_color": "#0c2433",
+  "categories": ["sports", "health", "fitness"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "share_target": {
+    "action": "./share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": { "files": [{ "name": "video", "accept": ["video/*", ".mp4", ".mov", ".webm"] }] }
+  }
+}
