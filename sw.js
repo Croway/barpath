@@ -4,7 +4,7 @@
  *  - vendor/ (MediaPipe runtime and pose models, ~19 MB precached): cache first; they never change for a version.
  *  - POST ./share (the manifest's share target): keeps the shared video, then opens the app with ?shared=1.
  */
-const SHELL = "barpath-shell-v4";
+const SHELL = "barpath-shell-v5";
 const VENDOR = "barpath-vendor-0.10.21";
 const SHARE = "barpath-share";
 const SHELL_FILES = [
@@ -31,7 +31,8 @@ self.addEventListener("install", (e) => {
 
 self.addEventListener("activate", (e) => {
   e.waitUntil((async () => {
-    for (const k of await caches.keys()) if (![SHELL, VENDOR, SHARE].includes(k)) await caches.delete(k);
+    // only this app's old caches: other apps on the same origin (Kip Lab, also on croway.github.io) keep theirs
+    for (const k of await caches.keys()) if (k.startsWith("barpath-") && ![SHELL, VENDOR, SHARE].includes(k)) await caches.delete(k);
     await self.clients.claim();
   })());
 });
