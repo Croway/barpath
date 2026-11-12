@@ -4,7 +4,7 @@
  *  - vendor/ (MediaPipe runtime and pose models, ~19 MB precached): cache first; they never change for a version.
  *  - POST ./share (the manifest's share target): keeps the shared video, then opens the app with ?shared=1.
  */
-const SHELL = "barpath-shell-v5";
+const SHELL = "barpath-shell-v6";
 const VENDOR = "barpath-vendor-0.10.21";
 const SHARE = "barpath-share";
 const SHELL_FILES = [
@@ -20,7 +20,8 @@ const VENDOR_FILES = [
 
 self.addEventListener("install", (e) => {
   e.waitUntil((async () => {
-    await (await caches.open(SHELL)).addAll(SHELL_FILES);
+    // the offline copy from the server too, not from the browser's 10-minute cache
+    await (await caches.open(SHELL)).addAll(SHELL_FILES.map((f) => new Request(f, { cache: "no-cache" })));
     try {
       const c = await caches.open(VENDOR);
       for (const f of VENDOR_FILES) if (!(await c.match(f))) await c.add(f);
@@ -59,7 +60,9 @@ async function networkFirst(req, url) {
   const c = await caches.open(SHELL);
   try {
     const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 4000);
-    const res = await fetch(req, { signal: ctl.signal });
+    // ask the server every time (a cheap 304 when nothing changed): GitHub Pages lets browsers keep files 10 min,
+    // and an update (a new icon) would otherwise show only after that
+    const res = await fetch(req, { signal: ctl.signal, cache: "no-cache" });
     clearTimeout(timer);
     if (res.ok && !url.search) await c.put(req, res.clone());
     return res;
