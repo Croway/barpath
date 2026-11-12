@@ -3,6 +3,7 @@
 //   adb forward tcp:9333 localabstract:chrome_devtools_remote
 //   node test/phone.mjs http://localhost:9333 http://localhost:8765 <video url on the app server | shared> <at s[-end s]> <x,y> <out dir> [pose]
 // <at>: where to drag the timeline's start handle (and, with -end, its end handle), with real touches.
+// --gallery [--kg 60]: then enter the load, open the gallery, and compare the two newest lifts (with real taps).
 // "file:<local path>": hand the video over DevTools (no server needed): to the installed app's window when it's
 // open (an offline test), otherwise to the tab at <prefix> (e.g. the published app in Chrome).
 // "shared": the video was shared to the installed app (Android share sheet / am start SEND); attach to the
@@ -109,4 +110,44 @@ await ev(`document.getElementById("checks").scrollIntoView({ block: "center" }),
 await sleep(400);
 await shot("p06-checks");
 await ev(`window.scrollTo(0, 0), true`);
+
+if (process.argv.includes("--gallery")) {
+  const kgArg = process.argv.indexOf("--kg"), kg = kgArg > 0 ? +process.argv[kgArg + 1] : 60;
+  const tapEl = async (sel, k = 0) => {
+    const p = await ev(`(() => { const e = document.querySelectorAll(${JSON.stringify(sel)})[${k}]; e.scrollIntoView({ block: "center" }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+    await sleep(250);
+    await send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [p] });
+    await send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  };
+  await ev(`(() => { const i = document.getElementById("kg"); i.value = "${kg}"; i.dispatchEvent(new Event("input")); return true; })()`);
+  await until(`window.__barpath.R.kg === ${kg} && /Saved in the gallery/.test(document.getElementById("resSaved").textContent)`, 15000);
+  await sleep(900);
+  console.log("with the load:", await ev(`[...document.querySelectorAll(".tile")].map((t) => t.innerText.replace(/\\n/g, " ")).filter((t) => /power/i.test(t)).join(" | ")`));
+  await tapEl("#btnGallery2");
+  await until(`!document.getElementById("gallery").hidden && document.querySelectorAll("#galList .lift").length >= 1`, 10000);
+  await sleep(800);
+  await ev(`window.scrollTo(0, 0), true`);
+  await shot("p07-gallery");
+  const n = await ev(`document.querySelectorAll("#galList .lift").length`);
+  console.log("gallery:", await ev(`document.getElementById("galSummary").textContent`), "|", await ev(`[...document.querySelectorAll("#galList .txt")].map((e) => e.innerText.replace(/\\n/g, " / ")).join(" || ")`));
+  if (n >= 2) {
+    await tapEl("#galList .pick input", 0);
+    await tapEl("#galList .pick input", 1);
+    await until(`!document.getElementById("btnGalCompare").disabled`, 5000);
+    await tapEl("#btnGalCompare");
+    await until(`(() => { const C = window.__barpathCompare; return C.L.length >= 2 && C.L.every((l) => l.video.readyState >= 2 && !l.busy); })()`, 30000);
+    await ev(`window.scrollTo(0, 0), true`);
+    await sleep(600);
+    await shot("p08-compare");
+    await tapEl("#cmpPlay");
+    await sleep(2500);
+    console.log("compare playing:", await ev(`(() => { const C = window.__barpathCompare; return JSON.stringify({ tau: +C.tau.toFixed(2), playing: C.playing, drift_s: C.L.map((l) => +Math.abs(l.video.currentTime - C.vt(l, C.tau)).toFixed(3)) }); })()`));
+    await ev(`window.scrollTo(0, 0), true`);
+    await shot("p09-compare-playing");
+    await tapEl("#cmpPlay");
+    await ev(`document.getElementById("cmpTable").scrollIntoView({ block: "start" }), true`);
+    await sleep(400);
+    await shot("p10-compare-table");
+  }
+}
 ws.close();

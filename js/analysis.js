@@ -237,7 +237,7 @@ function recognise(sig, chosen) {
 /* ------------------------------------------------------------------ the analysis */
 /**
  * samples: [{t: video media time s, x, y, r: plate centre and radius in video px, ok, pose?: 33 × {x, y, z, v} in video px}]
- * opts: {plateMm=450, slowmo=1, facing: 1 right | -1 left | 0 auto, lift: 'auto' | one of LIFTS}
+ * opts: {plateMm=450, slowmo=1, facing: 1 right | -1 left | 0 auto, lift: 'auto' | one of LIFTS, kg: the load, for power}
  */
 export function analyse(samples, opts = {}) {
   const sig = prepare(samples, opts);
@@ -250,11 +250,59 @@ export function analyse(samples, opts = {}) {
     : reps(sig, opts, mv.lift);
   if (R.error) return R;
   const { n, fs, T, tv0, slow } = sig;
+  if (opts.kg > 0) addPower(R, opts.kg, fs);
   return {
     ...R, liftFrom: mv.lift === "olympic" ? R.typeFrom : mv.from, liftWhy: mv.why,
     fs, n, T, xs: sig.xs, ys: sig.ys, rs: sig.rs, gap: sig.gap, tv0, slow, mpp: sig.mpp, rpx: sig.rpx, plate: sig.plate, side: sig.side, poseCover: sig.poseCover,
     tVideo: (i) => tv0 + T[i] * slow, indexAt: (tv) => clamp(Math.round(((tv - tv0) / slow) * fs), 0, n - 1),
   };
+}
+
+/* ------------------------------------------------------------------ power, with the load */
+const G = 9.81;
+/**
+ * The force on the bar, m(g + a), and the power going into it, F·v (forward and up). Acceleration is the bar
+ * speed differentiated once more and smoothed at 6 Hz: a second derivative of tracking noise would swamp it.
+ * Snatch and clean: over the pull, lift-off to peak speed. Rep lifts: over each rep's lifting phase, where the
+ * mean is mean concentric power (≈ m·g·rise / time, as the bar starts and ends at rest).
+ */
+function addPower(R, kg, fs) {
+  const fc = Math.min(6, fs / 4), ax = filtfilt(deriv(R.vx, fs), fc, fs), ay = filtfilt(deriv(R.vy, fs), fc, fs);
+  const n = R.vy.length, P = new Float64Array(n), F = new Float64Array(n);
+  for (let i = 0; i < n; i++) { F[i] = kg * (ay[i] + G); P[i] = kg * (ax[i] * R.vx[i] + (ay[i] + G) * R.vy[i]); }
+  const mean = (a, i0, i1) => { let s = 0; for (let i = i0; i <= i1; i++) s += a[i]; return s / Math.max(1, i1 - i0 + 1); };
+  const W = (w) => `${Math.round(w)}`;
+  const put = (label, value, unit, note) => R.metrics.push({ group: "Power", label, value, unit, note });
+  R.P = P; R.F = F; R.kg = kg;
+  put("Load", kg, "kg", "as entered");
+  if (!R.reps) {
+    const i0 = R.ev.liftoff, i1 = R.ev.vmax, iP = argmax(P, i0, i1), iF = argmax(F, i0, i1), pull = mean(P, i0, i1);
+    put("Peak power", P[iP], "W", `${((iP - i0) / fs).toFixed(2)} s after lift-off; ${(P[iP] / kg).toFixed(1)} W per kg of bar`);
+    put("Mean power in the pull", pull, "W", "lift-off to peak speed");
+    put("Peak force on the bar", F[iF], "N", `approx. (smoothing softens short spikes); ${(F[iF] / (kg * G)).toFixed(1)}× the bar's weight`);
+    put("Bar energy at peak speed", 0.5 * kg * R.vy[i1] ** 2 + kg * G * (R.H[i1] - R.H[i0]), "J", "moving + lifted, from lift-off");
+    R.tiles.push(
+      { label: "Peak power", value: W(P[iP]), unit: "W", note: `${(P[iP] / kg).toFixed(1)} W per kg of bar` },
+      { label: "Pull power", value: W(pull), unit: "W", note: "mean, lift-off to peak speed" },
+    );
+    return;
+  }
+  for (const s of R.stages) {
+    if (s.id !== "up") continue;
+    const r = R.reps.find((q) => q.n === s.rep);
+    if (r) { r.power = mean(P, s.i0, s.i1); r.peakPower = P[argmax(P, s.i0, s.i1)]; }
+  }
+  const done = R.reps.filter((r) => r.power !== undefined);
+  if (!done.length) return;
+  const best = done.reduce((a, b) => (b.power > a.power ? b : a)), peak = done.reduce((a, b) => (b.peakPower > a.peakPower ? b : a));
+  put("Best mean lifting power", best.power, "W", `rep ${best.n}; mean concentric power`);
+  put("Peak power", peak.peakPower, "W", `rep ${peak.n}`);
+  put("Mean lifting power, every rep", done.reduce((a, r) => a + r.power, 0) / done.length, "W");
+  if (done.length > 1) put("Power lost, best rep to last", (100 * (best.power - done[done.length - 1].power)) / best.power, "%");
+  R.tiles.push(
+    { label: "Best mean power", value: W(best.power), unit: "W", note: `lifting, rep ${best.n}` },
+    { label: "Peak power", value: W(peak.peakPower), unit: "W", note: `rep ${peak.n}` },
+  );
 }
 
 /* ------------------------------------------------------------------ snatch and clean */
@@ -817,4 +865,10 @@ function reps(sig, opts, lift) {
   };
 }
 
-export function fmtSigned(v, d = 0) { const s = v.toFixed(d); return v > 0 && Number(s) !== 0 ? `+${s}` : s.replace("-", "−"); }
+/** a measurement's value as shown (signed: a difference between two lifts) */
+export function fmtMetric(m, signed = false) {
+  const d = m.unit === "cm" ? (Math.abs(m.value) < 10 && m.label !== "Catch vs start" ? 1 : 0)
+    : ["°", "%", "", "W", "N", "J"].includes(m.unit) ? 0 : m.unit === "kg" ? (Number.isInteger(m.value) ? 0 : 1) : 2;
+  return signed || m.label === "Catch vs start" ? fmtSigned(m.value, d) : m.value.toFixed(d);
+}
+export function fmtSigned(v, d = 0) { const s = v.toFixed(d); return Number(s) === 0 ? (0).toFixed(d) : v > 0 ? `+${s}` : s.replace("-", "−"); }

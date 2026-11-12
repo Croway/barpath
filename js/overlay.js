@@ -31,7 +31,7 @@ function halo(ctx, draw, width, color) {
 }
 
 /**
- * scene: { W, H, plate?: {x, y, r, ok}, trail?: [{x, y, k}] (k = speed 0..1, or null for one colour),
+ * scene: { W, H, plate?: {x, y, r, ok}, trail?: [{x, y, k}] (k = speed 0..1, or null for one colour: `color`),
  *          pose?: landmarks in video px, side?: 'l'|'r' }
  */
 export function draw(canvas, scene) {
@@ -58,7 +58,7 @@ export function draw(canvas, scene) {
     ctx.beginPath(); T.forEach((p, i) => (i ? ctx.lineTo(X(p.x), X(p.y)) : ctx.moveTo(X(p.x), X(p.y)))); ctx.stroke();
     ctx.lineWidth = 3;
     for (let i = 1; i < T.length; i++) {
-      ctx.strokeStyle = T[i].k === null ? "#cde2fb" : trailColor(T[i].k);
+      ctx.strokeStyle = T[i].k === null ? scene.color || "#cde2fb" : trailColor(T[i].k);
       ctx.beginPath(); ctx.moveTo(X(T[i - 1].x), X(T[i - 1].y)); ctx.lineTo(X(T[i].x), X(T[i].y)); ctx.stroke();
     }
   }

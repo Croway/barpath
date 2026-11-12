@@ -1,13 +1,16 @@
 /* Bar Path: the screens and the flow. Get a video (record or pick), mark the plate, track every frame,
  * analyse, show the replay and the charts. Everything runs on the device. */
 import { PlateTracker, detectAt } from "./plate.js";
-import { analyse, fmtSigned, LIFTS } from "./analysis.js";
+import { analyse, fmtSigned, fmtMetric, LIFTS } from "./analysis.js";
 import * as V from "./video.js";
 import * as Pose from "./pose.js";
 import * as Rec from "./recorder.js";
 import * as Ov from "./overlay.js";
 import { Timeline } from "./trim.js";
 import { initShare } from "./share.js";
+import * as Store from "./store.js";
+import { Gallery } from "./gallery.js";
+import { Compare } from "./compare.js";
 import { drawPath, drawSpeed, drawReps, pathHit, speedHit, fillTip, rampCss, span, where } from "./charts.js";
 
 const $ = (id) => document.getElementById(id);
@@ -21,8 +24,9 @@ const S = {
   samples: null, R: null, cursor: null, facingOverride: null,
   mode: "start", abort: null, playing: false, rate: 0.25,
   cam: null, recorder: null, stopLevel: null, poseNote: "",
+  file: null, filmed: 0, entryId: null, thumbFrame: null, // the gallery: the source file, when it was filmed, its saved id
 };
-window.__barpath = S; // for tests and debugging
+window.__barpath = S; // for tests and debugging (the compare view: window.__barpathCompare)
 
 /* ------------------------------------------------------------------ settings */
 const KEEP = ["plateMm", "slowmo", "poseModel"];
@@ -35,19 +39,23 @@ function loadSettings() {
 function saveSettings() {
   try { localStorage.setItem("barpath.settings", JSON.stringify(Object.fromEntries(KEEP.map((k) => [k, $(k).value])))); } catch { /* ignore */ }
 }
-const opts = () => ({ plateMm: +$("plateMm").value, slowmo: +$("slowmo").value, facing: S.facingOverride ?? +$("facing").value, lift: $("liftSel").value });
+const kg = () => { const v = parseFloat($("kg").value); return v > 0 && v <= 500 ? v : null; };
+const opts = () => ({ plateMm: +$("plateMm").value, slowmo: +$("slowmo").value, facing: S.facingOverride ?? +$("facing").value, lift: $("liftSel").value, kg: kg() });
 
 /* ------------------------------------------------------------------ screens */
 function setMode(m) {
   S.mode = m;
   $("start").hidden = m !== "start";
+  $("gallery").hidden = m !== "gallery";
+  $("compare").hidden = m !== "compare";
+  if (m === "gallery" || m === "compare") stopPlayback();
   $("camera").hidden = m !== "camera";
   $("work").hidden = !["mark", "running", "results"].includes(m);
   $("mark").hidden = m !== "mark";
   $("running").hidden = m !== "running";
   $("results").hidden = m !== "results";
   $("hud").hidden = m !== "results";
-  $("settings").hidden = m === "camera" || m === "running";
+  $("settings").hidden = ["camera", "running", "gallery", "compare"].includes(m);
   for (const id of ["btnPrev", "btnNext"]) $(id).disabled = m === "running";
   $("btnPreview").hidden = m !== "mark";
   stopPreview();
@@ -67,10 +75,15 @@ function grab(src, sx, sy, sw, sh, w, h) {
 }
 
 /* ------------------------------------------------------------------ open a video */
-async function openVideo(file, name, recorded) {
+/** saved: { card, data } from the gallery: the analysis comes back as it was, without tracking again */
+async function openVideo(file, name, recorded, saved = null) {
   stopPlayback();
   if (S.src) URL.revokeObjectURL(S.src);
   Object.assign(S, { blob: recorded ? file : null, name, src: URL.createObjectURL(file), plate: null, samples: null, R: null, end: null, start: 0, cursor: null, facingOverride: null });
+  Object.assign(S, { file, filmed: saved ? saved.card.filmed : file.lastModified || Date.now(), entryId: saved?.card.id ?? null, thumbFrame: null, runStats: null });
+  if (!saved) { loadSettings(); $("liftSel").value = "auto"; $("facing").value = "0"; $("kg").value = ""; } // a new video starts from your defaults
+  $("resSaved").textContent = "";
+  $("btnDelete").hidden = true;
   $("btnSaveVideo").hidden = !recorded;
   $("sizeField").hidden = true;
   $("btnAnalyse").disabled = true;
@@ -84,16 +97,32 @@ async function openVideo(file, name, recorded) {
     const info = await V.load(video, S.src);
     Object.assign(S, { W: info.W, H: info.H, duration: info.duration });
     Ov.fitViewer(viewer, S.W, S.H);
-    S.fps = (await V.probeFps(video)) || 30;
-    await V.seek(video, 0);
+    S.fps = saved?.data.fps || (await V.probeFps(video)) || 30;
+    await V.seek(video, saved ? saved.data.start : 0);
     TL.setVideo(S.duration, S.fps);
     TL.filmstrip(S.src);
+    if (saved) return restore(saved.data);
     shown();
     videoInfo();
   } catch (e) {
     setMode("start");
     $("recordHint").textContent = e.message || String(e);
   }
+}
+/** a saved lift: its part, plate, tracked frames and settings, then its results */
+function restore(d) {
+  const o = d.opts || {};
+  for (const k of ["plateMm", "slowmo", "facing"]) if (o[k] !== undefined && $(k).querySelector(`option[value="${CSS.escape(String(o[k]))}"]`)) $(k).value = String(o[k]);
+  $("liftSel").value = o.lift || "auto";
+  $("kg").value = o.kg ? String(o.kg) : "";
+  Object.assign(S, { start: d.start, end: d.end ?? null, plate: { ...d.plate }, r0: d.plate.r, samples: d.samples, runStats: d.runStats || null, poseNote: d.poseNote || "", facingOverride: o.facingOverride ?? null });
+  TL.setRange(S.start, endT());
+  $("sizeField").hidden = false;
+  $("btnAnalyse").disabled = false;
+  videoInfo();
+  showResults(true);
+  $("resSaved").textContent = "From the gallery on this phone. Mark again to change the part or the plate.";
+  $("btnDelete").hidden = false;
 }
 function videoInfo() {
   const parts = [`${S.W}×${S.H}`, `${Math.round(S.fps)} fps`, `${S.duration.toFixed(1)} s`];
@@ -243,6 +272,7 @@ async function run() {
   }
   if (ac.signal.aborted) return setMode("mark");
   await V.seek(video, S.start);
+  S.thumbFrame = snapshot();
   const tracker = new PlateTracker(S.plate.x, S.plate.y, S.plate.r, S.W, S.H);
   if (P) Pose.beginRun(S.start);
   const first = { t: S.start, x: S.plate.x, y: S.plate.y, r: S.plate.r, ok: true, conf: 1, pose: P ? Pose.detect(P, video, S.start, S.W, S.H) : null };
@@ -271,6 +301,7 @@ async function run() {
   S.samples = samples;
   S.runStats = { frames: samples.length, seconds: (performance.now() - began) / 1000, pose: P ? `${P.kind} on ${P.delegate}` : "off" };
   showResults(true);
+  if (S.mode === "results") saveLift(true);
 }
 $("btnAnalyse").addEventListener("click", run);
 $("btnCancel").addEventListener("click", () => S.abort?.abort());
@@ -281,11 +312,6 @@ const STATUS = { good: ["✓", "Good"], warning: ["!", "Watch"], serious: ["!!",
 const FROM = { you: "set by you", body: "from the body", bar: "guessed from the bar", guess: "guessed" };
 const RECOG = { you: "chosen by you", body: "recognised from the body", bar: "recognised from the bar only: check Lift" };
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
-function fmtVal(m) {
-  if (m.unit === "cm") return m.label === "Catch vs start" ? fmtSigned(m.value, 0) : m.value.toFixed(m.value < 10 ? 1 : 0);
-  if (m.unit === "°" || m.unit === "%" || m.unit === "") return m.value.toFixed(0);
-  return m.value.toFixed(2);
-}
 
 function showResults(fresh = false) {
   const R = analyse(S.samples, opts());
@@ -304,6 +330,7 @@ function showResults(fresh = false) {
   $("resSub").textContent = [
     `${LIFTS[R.lift]} ${RECOG[R.liftFrom] || ""}${R.liftFrom !== "you" && R.liftWhy ? ` (${R.liftWhy})` : ""}`,
     `${R.lift === "bench" ? "head to the" : "faces"} ${R.facing > 0 ? "right" : "left"} (${FROM[R.facingFrom]})`,
+    R.kg ? `${R.kg} kg` : null,
     R.slow > 1 ? `slowed ${R.slow}×` : null,
     st ? `${st.frames} frames in ${st.seconds.toFixed(0)} s, body tracking ${st.pose}` : null,
   ].filter(Boolean).join(" · ");
@@ -321,6 +348,7 @@ function showResults(fresh = false) {
   };
   for (const t of R.tiles) tile(t.label, t.value, t.unit, t.note);
 
+  $("kgHint").hidden = !!R.kg;
   const notes = $("notes");
   notes.replaceChildren(...[...R.notes, S.poseNote].filter(Boolean).map((n) => el("li", null, n)));
 
@@ -359,18 +387,18 @@ function showResults(fresh = false) {
     const t = $("repsTable"), depth = R.reps.some((r) => r.depth !== undefined && r.depth !== null);
     t.replaceChildren();
     const head = el("tr");
-    for (const h of ["Rep", "Range cm", "Mean m/s", "Peak m/s", "Down s", "Up s", ...(depth ? ["Depth cm"] : [])]) head.append(el("th", null, h));
+    for (const h of ["Rep", "Range cm", "Mean m/s", "Peak m/s", ...(R.kg ? ["Power W"] : []), "Down s", "Up s", ...(depth ? ["Depth cm"] : [])]) head.append(el("th", null, h));
     t.append(head);
     for (const r of R.reps) {
       const tr = el("tr");
       tr.dataset.rep = r.n;
-      const cells = [String(r.n), (r.rom * 100).toFixed(0), r.mean.toFixed(2), r.peak.toFixed(2), r.down.toFixed(2), r.up.toFixed(2)];
+      const cells = [String(r.n), (r.rom * 100).toFixed(0), r.mean.toFixed(2), r.peak.toFixed(2), ...(R.kg ? [r.power === undefined ? "–" : r.power.toFixed(0)] : []), r.down.toFixed(2), r.up.toFixed(2)];
       if (depth) cells.push(r.depth === null || r.depth === undefined ? "–" : `${r.depth >= 0 ? "−" : "+"}${Math.abs(r.depth * 45).toFixed(0)}`);
       for (const c of cells) tr.append(el("td", null, c));
       tr.addEventListener("click", () => setCursor(r.begin, true));
       t.append(tr);
     }
-    if (depth) { const tr = el("tr"), td = el("td", "n", "Depth: hip crease vs the knee, − below parallel (approx.)"); td.colSpan = 7; td.style.textAlign = "left"; tr.append(td); t.append(tr); }
+    if (depth) { const tr = el("tr"), td = el("td", "n", "Depth: hip crease vs the knee, − below parallel (approx.)"); td.colSpan = 8; td.style.textAlign = "left"; tr.append(td); t.append(tr); }
   }
   requestAnimationFrame(() => { for (const b of bar.children) if (b.scrollWidth > b.clientWidth + 1) b.firstChild.textContent = ""; });
 
@@ -404,12 +432,13 @@ function showResults(fresh = false) {
     }
     const tr = el("tr"), a = el("td", null, m.label);
     if (m.note) a.append(el("span", "n", m.note));
-    tr.append(a, el("td", "v", `${fmtVal(m)} ${m.unit}`));
+    tr.append(a, el("td", "v", `${fmtMetric(m)} ${m.unit}`));
     table.append(tr);
   }
 
   drawCharts();
   setCursor(S.cursor, true);
+  if (!fresh) queueSave();
 }
 
 function drawCharts() {
@@ -509,10 +538,10 @@ async function play() {
 }
 $("btnPlay").addEventListener("click", () => (S.playing ? stopPlayback() : play()));
 video.addEventListener("pause", () => { if (S.mode === "results") { S.playing = false; $("btnPlay").textContent = "Play"; } });
-for (const b of document.querySelectorAll(".seg button")) {
+for (const b of document.querySelectorAll("#rates button")) {
   b.addEventListener("click", () => {
     S.rate = +b.dataset.rate;
-    for (const o of document.querySelectorAll(".seg button")) o.setAttribute("aria-pressed", String(o === b));
+    for (const o of document.querySelectorAll("#rates button")) o.setAttribute("aria-pressed", String(o === b));
     if (S.playing) video.playbackRate = S.rate;
   });
 }
@@ -520,6 +549,8 @@ for (const b of document.querySelectorAll(".seg button")) {
 /* result actions */
 $("btnFlip").addEventListener("click", () => { S.facingOverride = -S.R.facing; showResults(); });
 $("liftSel").addEventListener("change", () => { if (S.mode === "results") showResults(); });
+let kgTimer = 0;
+$("kg").addEventListener("input", () => { clearTimeout(kgTimer); kgTimer = setTimeout(() => { if (S.mode === "results") showResults(); }, 350); });
 $("repsChart").addEventListener("pointerdown", (e) => {
   if (!S.geoReps) return;
   const x = e.clientX - $("repsChart").getBoundingClientRect().left;
@@ -527,7 +558,7 @@ $("repsChart").addEventListener("pointerdown", (e) => {
   if (c) setCursor(c.rep.begin, true);
 });
 $("btnAgain").addEventListener("click", () => { stopPlayback(); setMode("mark"); TL.setRange(S.start, endT()); seekTo(S.start); });
-for (const id of ["btnNew", "btnNew2"]) $(id).addEventListener("click", () => { stopPlayback(); setMode("start"); });
+for (const id of ["btnNew", "btnNew2"]) $(id).addEventListener("click", () => { stopPlayback(); setMode("start"); galleryCount(); });
 
 function download(blob, name) {
   const a = document.createElement("a");
@@ -538,10 +569,10 @@ function download(blob, name) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
 }
 $("btnCsv").addEventListener("click", () => {
-  const R = S.R, rows = ["time_s,forward_cm,height_m,vx_m_s,vy_m_s,speed_m_s,rep,stage,filled_in"];
+  const R = S.R, rows = [`time_s,forward_cm,height_m,vx_m_s,vy_m_s,speed_m_s,${R.P ? "power_w,force_n," : ""}rep,stage,filled_in`];
   for (let i = 0; i < R.n; i++) {
     const k = R.stageOf[i];
-    rows.push([(R.T[i] - R.T[R.t0i]).toFixed(4), (R.X[i] * 100).toFixed(2), R.H[i].toFixed(4), R.vx[i].toFixed(3), R.vy[i].toFixed(3), R.speed[i].toFixed(3), R.repOf?.[i] || "", k >= 0 ? R.stages[k].name : "", R.gap[i]].join(","));
+    rows.push([(R.T[i] - R.T[R.t0i]).toFixed(4), (R.X[i] * 100).toFixed(2), R.H[i].toFixed(4), R.vx[i].toFixed(3), R.vy[i].toFixed(3), R.speed[i].toFixed(3), ...(R.P ? [R.P[i].toFixed(1), R.F[i].toFixed(1)] : []), R.repOf?.[i] || "", k >= 0 ? R.stages[k].name : "", R.gap[i]].join(","));
   }
   download(new Blob([rows.join("\n")], { type: "text/csv" }), `${S.name}-bar.csv`);
 });
@@ -551,7 +582,7 @@ $("btnJson").addEventListener("click", () => {
     app: "Bar Path", video: { name: S.name, width: S.W, height: S.H, fps: +S.fps.toFixed(2) }, settings: opts(),
     lift: R.lift, title: R.title, recognised: R.liftFrom, facing: R.facing > 0 ? "right" : "left", heights: R.axis.h,
     reps: R.reps ? R.reps.map((r) => ({ rep: r.n, start_s: t(r.begin), range_cm: +(r.rom * 100).toFixed(1), mean_m_s: +r.mean.toFixed(3), peak_m_s: +r.peak.toFixed(3),
-      lowering_s: +r.down.toFixed(3), pause_s: +r.pause.toFixed(3), lifting_s: +r.up.toFixed(3), ...(r.depth != null ? { depth_thigh_lengths: +r.depth.toFixed(3) } : {}) })) : undefined,
+      lowering_s: +r.down.toFixed(3), pause_s: +r.pause.toFixed(3), lifting_s: +r.up.toFixed(3), ...(r.power !== undefined ? { mean_lifting_power_w: +r.power.toFixed(1) } : {}), ...(r.depth != null ? { depth_thigh_lengths: +r.depth.toFixed(3) } : {}) })) : undefined,
     events_s: Object.fromEntries(Object.entries(R.ev).map(([k, i]) => [k, t(i)])),
     stages: R.stages.map((s) => ({ ...(s.rep ? { rep: s.rep } : {}), name: s.name, start_s: t(s.i0), seconds: +s.dur.toFixed(3) })),
     measurements: R.metrics.map((m) => ({ ...m, value: +m.value.toFixed(4) })), checks: R.checks,
@@ -559,6 +590,121 @@ $("btnJson").addEventListener("click", () => {
   download(new Blob([JSON.stringify(out, null, 2)], { type: "application/json" }), `${S.name}-analysis.json`);
 });
 $("btnSaveVideo").addEventListener("click", () => { if (S.blob) download(S.blob, `${S.name}.${S.blob.type.includes("mp4") ? "mp4" : "webm"}`); });
+
+/* ------------------------------------------------------------------ the gallery: analysed lifts kept on this phone */
+/** the frame the analysis starts on, small, for the gallery's thumbnail */
+function snapshot() {
+  const k = Math.min(1, 720 / Math.max(S.W, S.H)), c = document.createElement("canvas");
+  c.width = Math.round(S.W * k); c.height = Math.round(S.H * k);
+  c.getContext("2d").drawImage(video, 0, 0, c.width, c.height);
+  return c;
+}
+/** a 3:4 crop of the start frame around the bar's path, with the path drawn on it */
+function thumbnail(R) {
+  const f = S.thumbFrame;
+  if (!f) return Promise.resolve(null);
+  const [i0, i1] = R.span, pad = 1.5 * R.rpx;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (let i = i0; i <= i1; i++) { x0 = Math.min(x0, R.xs[i]); x1 = Math.max(x1, R.xs[i]); y0 = Math.min(y0, R.ys[i]); y1 = Math.max(y1, R.ys[i]); }
+  x0 -= pad; x1 += pad; y0 -= pad; y1 += pad;
+  let w = x1 - x0, h = y1 - y0;
+  if (w / h < 0.75) { x0 -= (0.75 * h - w) / 2; w = 0.75 * h; } else { y0 -= (w / 0.75 - h) / 2; h = w / 0.75; }
+  const fit = Math.min(1, S.W / w, S.H / h);
+  x0 += (w - w * fit) / 2; y0 += (h - h * fit) / 2; w *= fit; h *= fit;
+  x0 = clamp(x0, 0, S.W - w); y0 = clamp(y0, 0, S.H - h);
+  const c = document.createElement("canvas"), g = c.getContext("2d"), k = f.width / S.W;
+  c.width = 150; c.height = 200;
+  g.drawImage(f, x0 * k, y0 * k, w * k, h * k, 0, 0, c.width, c.height);
+  const s = c.width / w, path = () => { g.beginPath(); for (let i = i0; i <= i1; i++) g[i === i0 ? "moveTo" : "lineTo"]((R.xs[i] - x0) * s, (R.ys[i] - y0) * s); };
+  g.lineJoin = g.lineCap = "round";
+  g.lineWidth = 5; g.strokeStyle = "rgba(0,0,0,0.55)"; path(); g.stroke(); // on footage: the overlay's halo and blue
+  g.lineWidth = 2.5; g.strokeStyle = "#3987e5"; path(); g.stroke();
+  return new Promise((res) => c.toBlob(res, "image/jpeg", 0.82));
+}
+const liftOpts = () => ({ plateMm: +$("plateMm").value, slowmo: +$("slowmo").value, facing: +$("facing").value, facingOverride: S.facingOverride, lift: $("liftSel").value, kg: kg() });
+/** keep this analysis: fresh = just tracked (a new lift, or a lift analysed again); otherwise its settings changed */
+async function saveLift(fresh) {
+  if (!S.R || !S.samples || !Store.available() || (!fresh && !S.entryId)) return;
+  const R = S.R, id = S.entryId ?? Store.newId(), isNew = !S.entryId;
+  const card = { id, filmed: S.filmed, saved: Date.now(), name: S.name, title: R.title, lift: R.lift, kg: kg(), tiles: R.tiles.slice(0, 2).map(({ label, value, unit }) => ({ label, value, unit })) };
+  const data = { samples: S.samples, plate: S.plate, start: S.start, end: S.end, fps: S.fps, opts: liftOpts(), runStats: S.runStats, poseNote: S.poseNote };
+  try {
+    if (fresh) {
+      card.thumb = await thumbnail(R);
+      await Store.put(card, data, isNew ? S.file : null);
+      S.entryId = id;
+      galleryCount();
+    } else await Store.update(id, card, { opts: data.opts });
+    $("resSaved").textContent = "Saved in the gallery, on this phone.";
+    $("btnDelete").hidden = false;
+  } catch (e) {
+    $("resSaved").textContent = `Couldn't keep it in the gallery (${e?.message || e}).`;
+  }
+}
+let saveTimer = 0;
+const queueSave = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveLift(false), 400); };
+
+const GAL = new Gallery(
+  { list: $("galList"), filters: $("galFilters"), summary: $("galSummary"), empty: $("galEmpty"), bar: $("galBar"), barText: $("galBarText"), compare: $("btnGalCompare"), remove: $("btnGalDelete") },
+  { open: (id) => openSaved(id), compare: (ids) => openCompare(ids) },
+);
+const CMP = (window.__barpathCompare = new Compare({
+  videos: $("cmpVideos"), legend: $("cmpLegend"), scrub: $("cmpScrub"), read: $("cmpRead"), play: $("cmpPlay"), prev: $("cmpPrev"), next: $("cmpNext"),
+  rates: $("cmpRates"), path: $("cmpPath"), speed: $("cmpSpeed"), table: $("cmpTable"), note: $("cmpNote"),
+}));
+async function galleryCount() {
+  const n = await GAL.count();
+  $("btnGallery").hidden = n === 0;
+  $("btnGallery").textContent = `Gallery · ${n}`;
+}
+
+/* screens you can go back from with the phone's Back: each gets a history entry, and the one it was opened from
+ * is remembered on the entry before it */
+function push(screen) {
+  history.replaceState({ ...history.state, screen: history.state?.screen ?? S.mode }, "");
+  history.pushState({ screen }, "");
+}
+async function showGallery(fromHistory = false) {
+  if (!fromHistory && S.mode !== "gallery") push("gallery");
+  if (S.mode === "compare") CMP.close();
+  setMode("gallery");
+  await GAL.refresh();
+}
+async function openSaved(id) {
+  const got = await Store.get(id).catch(() => null);
+  if (!got) { GAL.refresh(); return; }
+  push("lift");
+  const type = got.video.type || "video/mp4";
+  await openVideo(new File([got.video], got.card.name, { type }), got.card.name, false, got);
+}
+async function openCompare(ids) {
+  const items = (await Promise.all(ids.map((id) => Store.get(id).catch(() => null)))).filter(Boolean);
+  if (items.length < 2) return;
+  push("compare");
+  setMode("compare");
+  await CMP.open(items);
+}
+window.addEventListener("popstate", (e) => {
+  const to = e.state?.screen ?? "start";
+  if (S.mode === "running") S.abort?.abort();
+  if (S.mode === "compare" && to !== "compare") CMP.close();
+  if (to === "gallery") return showGallery(true);
+  if ((to === "results" || to === "lift") && S.R) { setMode("results"); drawCharts(); return seekTo(video.currentTime); }
+  if (to === "mark" && S.src) { setMode("mark"); return seekTo(S.start); }
+  stopPlayback();
+  setMode("start");
+  galleryCount();
+});
+for (const id of ["btnGallery", "btnGallery2"]) $(id).addEventListener("click", () => showGallery());
+for (const id of ["btnGalBack", "btnCmpBack"]) $(id).addEventListener("click", () => history.back());
+$("btnDelete").addEventListener("click", async () => {
+  if (!S.entryId || !confirm("Delete this lift from Bar Path's gallery? A video in your phone's Gallery app isn't affected.")) return;
+  await Store.remove(S.entryId).catch(() => {});
+  S.entryId = null;
+  $("btnDelete").hidden = true;
+  $("resSaved").textContent = "Deleted from the gallery.";
+  galleryCount();
+});
 
 /* ------------------------------------------------------------------ getting a video */
 $("fileInput").addEventListener("change", (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) openVideo(f, f.name.replace(/\.\w+$/, ""), false); });
@@ -669,4 +815,5 @@ async function takeShared() {
 loadSettings();
 $("recordHint").textContent = Rec.canRecordInApp() ? "" : "Record opens your camera app. In-app recording, with a spirit level, needs the app served over HTTPS.";
 setMode("start");
+galleryCount();
 takeShared();

@@ -14,6 +14,7 @@ any app.
 | Deadlift | the same per rep; checks: hips shooting up, bar drifting off the legs, lockout, leaning back |
 | Bench press | the same per rep; checks: J-curve (touch → over the shoulders), touch point consistency, bounce |
 | Overhead press (push press / jerk) | the same per rep, dip depth; checks: lockout, leaning back, bar looping around the face |
+| Any, with the load entered | power and force: snatch/clean peak power, mean pull power, peak force (approx.); rep lifts mean lifting power per rep, best, peak, power lost |
 
 The lift is recognised on its own — from the body when it's tracked (lying down; bar at the floor, hips or
 shoulders; where the bar finishes), from the bar alone otherwise — and can be changed under **Lift**.
@@ -37,7 +38,12 @@ shoulders; where the bar finishes), from the bar alone otherwise — and can be 
    comes from the knees, or without the body from the dip in bar speed). Squat, deadlift, bench and press are
    split into reps — each trip away from the rest position and back — with lowering, pause and lifting phases.
 4. **Results.** Replay with the bar trail coloured by speed, the side-view bar path, bar speed over time,
-   stage timing, checks and every measurement; CSV/JSON export.
+   stage timing, checks and every measurement; CSV/JSON export. Enter the **load** (kg) for power: the force on
+   the bar is m(g + a) and its power F·v, with the acceleration smoothed at 6 Hz.
+5. **Gallery.** Every analysis is kept on the phone (IndexedDB: the video, the tracked frames, the settings) and
+   reopens instantly, without tracking again. Tick two to four lifts to **compare** them: videos side by side,
+   lined up at lift-off, playing and scrubbing together; bar paths and speeds overlaid, one colour per lift;
+   every measurement side by side, with the difference for two.
 
 ## Filming
 
@@ -90,6 +96,7 @@ node test/e2e.mjs . real.mp4 - /tmp/out --at 7 --end 11.5 --tap 760,1460      # 
 | `index.html`, `css/app.css` | the page; colour tokens for both themes |
 | `js/app.js` | screens and flow: record/pick, choose the part, mark, track, results, replay, export, install, share target |
 | `js/trim.js` | the timeline: filmstrip, start/end handles, playhead |
+| `js/store.js`, `js/gallery.js`, `js/compare.js` | the gallery: storage on the phone, the list, comparing lifts |
 | `js/share.js`, `js/qr.js` | Share app: the link, the system share sheet, a QR code encoder (no library) |
 | `js/plate.js` | plate detection and tracking |
 | `js/analysis.js` | smoothing, scale, events, stages, measurements, checks |
@@ -105,7 +112,8 @@ node test/e2e.mjs . real.mp4 - /tmp/out --at 7 --end 11.5 --tap 760,1460      # 
 
 One camera sees front/back and up/down only: no sideways drift, bar tilt, or left/right differences. Heights
 for snatch, clean and deadlift are from the floor (the bar starts there); for the others they're from the start.
-Checks use starting thresholds meant to be tuned with a coach. Without body tracking a bench looks like a squat
+Checks use starting thresholds meant to be tuned with a coach. Peak force reads low on very short spikes (the
+smoothing that calms tracking noise softens them); mean and peak power hold up better. Without body tracking a bench looks like a squat
 to the bar alone, and a strict press like a deadlift: pick the lift. Squat, deadlift, bench and press have so
 far been tested on a synthetic lifter, not on real clips.
 

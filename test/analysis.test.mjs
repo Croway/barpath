@@ -55,6 +55,24 @@ if (process.argv.includes("--ideal")) {
   // the same lift filmed from the other side: the analysis has to work out the facing on its own
   const flipped = ideal(60).map((s) => ({ ...s, x: 2 * X0 - s.x }));
   check(analyse(flipped), "60 fps, lifter facing left", REF, -1);
+  // power with the load, against the truth: force m(g + a) and power F·v from the exact path, over the pull
+  const KG = 60, G = 9.81, d = 1e-3, at = (t) => truthAt(t);
+  const vel = (t) => ({ x: (at(t + d).x - at(t - d).x) / (2 * d), y: (at(t + d).y - at(t - d).y) / (2 * d) });
+  const acc = (t) => ({ x: (vel(t + d).x - vel(t - d).x) / (2 * d), y: (vel(t + d).y - vel(t - d).y) / (2 * d) });
+  let pPeak = 0, fPeak = 0, pSum = 0, k = 0;
+  for (let t = REF.t_liftoff; t <= REF.t_vmax; t += d) {
+    const v = vel(t), a = acc(t), p = KG * (a.x * v.x + (a.y + G) * v.y);
+    pPeak = Math.max(pPeak, p); fPeak = Math.max(fPeak, KG * (a.y + G)); pSum += p; k++;
+  }
+  for (const [fps, opt] of [[60, {}], [30, {}], [60, { drop: 0.25, jitter: 1.5 }]]) {
+    const R = analyse(ideal(fps, opt), { kg: KG }), M = Object.fromEntries(R.metrics.filter((m) => m.group === "Power").map((m) => [m.label, m.value]));
+    console.log(`\n== power, ${KG} kg, ${fps} fps${opt.drop ? ", 25% lost, jitter" : ""}`);
+    expect("peak power W", M["Peak power"], pPeak, 0.12 * pPeak);
+    expect("mean pull power W", M["Mean power in the pull"], pSum / k, 0.06 * (pSum / k));
+    // the synthetic path is a C1 spline: its acceleration jumps at the keyframes, a spike the 10 Hz smoothing of
+    // positions can't keep (a real bar's acceleration is smoother). Hence the wider margin, and "approx." in the app.
+    expect("peak force N", M["Peak force on the bar"], fPeak, 0.2 * fPeak);
+  }
 } else {
   const file = process.argv[2];
   const S = JSON.parse(readFileSync(file.replace(/\.\w+$/, ".samples.json"), "utf8"));

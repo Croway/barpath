@@ -28,7 +28,13 @@ npm run icons                              # re-render PNG icons from icons/*.sv
 itself when processing falls behind) → `plate.js` crops a region around the predicted plate, scaled so the plate
 is 36 px in radius, and finds it → `pose.js` adds 33 landmarks per frame → `analysis.js` turns samples into the
 lift → `app.js` renders. `analyse()` is pure and re-runs instantly when settings change (plate size, slow-motion
-factor, facing, lift); only a new plate mark or pose model needs tracking again.
+factor, facing, lift, load kg); only a new plate mark or pose model needs tracking again.
+
+Gallery: every fresh analysis is saved (`store.js`, IndexedDB stores lifts / data / videos, so the list never
+reads videos); a saved lift keeps its samples and settings and reopens by re-running `analyse()`. Settings changed
+on the results update it; Mark again → Analyse replaces it. `compare.js` lines lifts up at `t0i` (τ = s from
+lift-off), syncs their videos on a wall clock and nudges any that drift. Gallery and compare get history entries,
+so the phone's Back works.
 
 `analyse()` = `prepare()` (grid, smoothing, per-frame scale, pose access) → `recognise()` → `olympic()` (snatch,
 clean, jerk: one pull) or `reps()` (squat, bench go down first; deadlift, press go up first). Both return the same
@@ -54,6 +60,8 @@ press by the bar's biggest trip from rest, not its first move (unracking lifts t
   the way up), it's where the bar was slowest. Standing = the bar stops rising for good. These windows keep a bar
   dropped after the lift out of the results.
 - Coordinates at the `plate.js` boundary are canvas coordinates (pixel i spans i..i+1).
+- **Power** = m(a·v) + m·g·vy with acceleration smoothed at 6 Hz on top of the 10 Hz positions. Less smoothing
+  doesn't recover a sharp force peak (the position filter limits it) and inflates power under tracking noise.
 - **The plate mark belongs to the start frame** (tracking only runs forward). The circle is drawn only on that
   frame; letting go of the end handle shows the start frame again; a tap on the plate near the end is refused;
   moving the start re-finds the plate near the old mark (kept as is, with a warning, if the rim isn't found).

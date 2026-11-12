@@ -50,12 +50,70 @@
     <div class="actions">
       <button id="btnRecord" class="primary" type="button">Record</button>
       <label class="button" for="fileInput">Choose a video</label>
+      <button id="btnGallery" type="button" hidden>Gallery</button>
     </div>
     <input id="fileInput" type="file" accept="video/*" hidden>
     <input id="captureInput" type="file" accept="video/*" capture="environment" hidden>
     <p class="hint" id="recordHint"></p>
     <p class="hint" id="installHint" hidden>To keep it on the home screen: Safari's Share button → <b>Add to Home Screen</b>.</p>
     <p class="hint" id="shareHint" hidden>Tip: in your Gallery, share a video to <b>Bar Path</b> to open it here.</p>
+  </section>
+
+  <!-- the gallery: every analysed lift kept on this phone -->
+  <section id="gallery" hidden>
+    <div class="screen-head">
+      <button id="btnGalBack" class="back" type="button" aria-label="Back">‹</button>
+      <h2>Gallery</h2>
+      <span class="hint num" id="galSummary"></span>
+    </div>
+    <div class="chips" id="galFilters" role="group" aria-label="Show"></div>
+    <p class="hint" id="galEmpty" hidden>Every lift you analyse is kept here, on this phone, to open again and to compare.</p>
+    <ul class="lifts" id="galList"></ul>
+    <p class="hint">Tap a lift to see its analysis. Tick two to compare them.</p>
+    <div class="selbar" id="galBar" hidden>
+      <span id="galBarText"></span>
+      <button id="btnGalDelete" type="button">Delete</button>
+      <button id="btnGalCompare" class="primary" type="button">Compare</button>
+    </div>
+  </section>
+
+  <!-- comparing saved lifts -->
+  <section id="compare" hidden>
+    <div class="screen-head">
+      <button id="btnCmpBack" class="back" type="button" aria-label="Back to the gallery">‹</button>
+      <h2>Compare</h2>
+    </div>
+    <ul class="cmp-legend" id="cmpLegend"></ul>
+    <p class="hint" id="cmpNote" hidden></p>
+    <div class="cmp-videos" id="cmpVideos"></div>
+    <div class="scrub">
+      <button id="cmpPrev" type="button" aria-label="Back one frame">‹</button>
+      <input id="cmpScrub" type="range" aria-label="Time from lift-off">
+      <button id="cmpNext" type="button" aria-label="Forward one frame">›</button>
+    </div>
+    <div class="replay">
+      <button id="cmpPlay" class="primary" type="button">Play</button>
+      <div class="seg" role="group" aria-label="Replay speed" id="cmpRates">
+        <button type="button" data-rate="0.25" aria-pressed="true">¼×</button>
+        <button type="button" data-rate="0.5" aria-pressed="false">½×</button>
+        <button type="button" data-rate="1" aria-pressed="false">1×</button>
+      </div>
+    </div>
+    <p class="hint num" id="cmpRead"></p>
+    <article class="card">
+      <h3>Bar paths · side view</h3>
+      <p class="sub">Each from its own start position. Drag across them to scrub every video.</p>
+      <div class="chart"><canvas id="cmpPath" aria-label="Bar paths of the lifts compared"></canvas></div>
+    </article>
+    <article class="card">
+      <h3>Bar speed · up and down</h3>
+      <p class="sub">Lined up at lift-off. Drag across it to scrub.</p>
+      <div class="chart"><canvas id="cmpSpeed" aria-label="Bar speeds of the lifts compared"></canvas></div>
+    </article>
+    <article class="card">
+      <h3>Every measurement</h3>
+      <table class="table cmp" id="cmpTable"></table>
+    </article>
   </section>
 
   <!-- in-app camera -->
@@ -111,7 +169,7 @@
     <div id="results" hidden>
       <div class="replay">
         <button id="btnPlay" type="button" class="primary">Play</button>
-        <div class="seg" role="group" aria-label="Replay speed">
+        <div class="seg" role="group" aria-label="Replay speed" id="rates">
           <button type="button" data-rate="0.25" aria-pressed="true">¼×</button>
           <button type="button" data-rate="0.5" aria-pressed="false">½×</button>
           <button type="button" data-rate="1" aria-pressed="false">1×</button>
@@ -120,13 +178,20 @@
       <div class="res-head">
         <h2 id="resTitle"></h2>
         <p class="hint" id="resSub"></p>
-        <label class="inline lift-pick">Lift
-          <select id="liftSel">
-            <option value="auto">Auto</option><option value="snatch">Snatch</option><option value="clean">Clean</option>
-            <option value="deadlift">Deadlift</option><option value="squat">Squat</option>
-            <option value="bench">Bench press</option><option value="press">Overhead press</option>
-          </select>
-        </label>
+        <p class="hint" id="resSaved"></p>
+        <div class="res-picks">
+          <label class="inline">Lift
+            <select id="liftSel">
+              <option value="auto">Auto</option><option value="snatch">Snatch</option><option value="clean">Clean</option>
+              <option value="deadlift">Deadlift</option><option value="squat">Squat</option>
+              <option value="bench">Bench press</option><option value="press">Overhead press</option>
+            </select>
+          </label>
+          <label class="inline load-pick">Load
+            <input id="kg" type="number" inputmode="decimal" min="0" max="500" step="0.5" placeholder="–" aria-describedby="kgHint"> kg
+          </label>
+        </div>
+        <p class="hint" id="kgHint">Add the load on the bar to see power and force.</p>
       </div>
       <div class="tiles" id="tiles"></div>
       <ul class="notes" id="notes"></ul>
@@ -175,6 +240,8 @@
         <button id="btnSaveVideo" type="button" hidden>Save video</button>
         <button id="btnAgain" type="button">Mark again</button>
         <button id="btnNew2" type="button">New video</button>
+        <button id="btnGallery2" type="button">Gallery</button>
+        <button id="btnDelete" type="button" hidden>Delete</button>
       </div>
     </div>
   </section>

@@ -121,6 +121,15 @@ ok(R.reps[4].mean < R.reps[0].mean, "reps slow down");
 near(R.metrics.find((m) => m.label === "Velocity loss").value, 100 * (1 - 0.8 / 1.2), 6, "velocity loss (%)");
 ok(R.checks.find((c) => c.title === "Depth")?.status === "good", "depth: below parallel");
 ok(/below parallel/.test(R.title), "title says below parallel");
+// with the load: mean lifting power = (work against gravity + change in the bar's kinetic energy) / time
+{
+  const P = analyse(sq, { kg: 100 }), up = P.stages.find((s) => s.id === "up" && s.rep === 1), dur = (up.i1 - up.i0) / P.fs;
+  const work = 100 * 9.81 * (P.H[up.i1] - P.H[up.i0]) + 50 * (P.vy[up.i1] ** 2 - P.vy[up.i0] ** 2);
+  near(P.reps[0].power, work / dur, 0.05 * (work / dur), "rep 1 mean lifting power, 100 kg (W)");
+  ok(P.reps[4].power < P.reps[0].power, `power drops as the reps slow (${P.reps.map((r) => Math.round(r.power)).join(", ")} W)`);
+  ok(P.tiles.some((t) => t.label === "Best mean power"), "power tiles shown");
+  ok(!R.metrics.some((m) => m.group === "Power"), "no power without a load");
+}
 run("squat, bar only", noPose(sq), { lift: "squat", from: "bar", reps: 5 });
 R = run("squat, bar drifts forward", set((u, k) => squat(u, k, 0.1), { reps: 3, first: 1.0, pause: 0.15, second: [0.8, 0.8, 0.8], rest: 0.6 }), { lift: "squat", reps: 3 });
 ok(R.checks.find((c) => c.title === "Bar path")?.status !== "good", "forward drift is flagged");

@@ -165,6 +165,92 @@ const qr = jsQR(Uint8ClampedArray.from(img.px), img.n, img.n);
 console.log("share:", img.link, "| QR reads", qr ? qr.data : "nothing");
 if (!qr || qr.data !== img.canonical) throw new Error(`the QR code should carry ${img.canonical}`);
 await page.tap("#btnShareClose");
+
+// the gallery: that analysis was kept. Analyse another part of the same video, then open one and compare both.
+page.on("dialog", (d) => d.accept());
+await page.waitForFunction(() => /Saved in the gallery/.test(document.getElementById("resSaved").textContent), null, { timeout: 20000 });
+// the load: power appears, and the saved lift keeps it
+const setKg = async (v) => {
+  await page.fill("#kg", String(v));
+  await page.waitForFunction((v) => window.__barpath.R.kg === v && [...document.querySelectorAll(".tile .label")].some((e) => /power/i.test(e.textContent)), v, { timeout: 5000 });
+  await page.waitForTimeout(600); // the saved lift is updated shortly after
+  return page.evaluate(() => ({ tiles: [...document.querySelectorAll(".tile")].map((t) => t.innerText.replace(/\n/g, " ")).filter((t) => /power|force/i.test(t)), power: window.__barpath.R.metrics.filter((m) => m.group === "Power").map((m) => `${m.label} ${m.value.toFixed(0)} ${m.unit}`) }));
+};
+console.log("with 60 kg:", JSON.stringify(await setKg(60)));
+await page.evaluate(() => document.querySelector(".res-head").scrollIntoView());
+await page.screenshot({ path: `${outDir}/09b-load.png` });
+await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+await page.tap("#btnNew2");
+await page.setInputFiles("#fileInput", videoPath);
+await page.waitForFunction(() => /fps/.test(document.getElementById("videoInfo").textContent), null, { timeout: 30000 });
+await page.evaluate(() => window.scrollTo(0, 0));
+const at2 = at ? Math.max(0, +at - 0.2) : null, end2 = endAt ? +endAt - 0.3 : null;
+if (end2) { await dragHandle("out", end2); await page.waitForTimeout(400); }
+if (at2 !== null) { await dragHandle("in", at2); await page.waitForTimeout(400); }
+await page.waitForFunction(() => !document.getElementById("video").seeking);
+const box2 = await page.locator("#overlay").boundingBox();
+await page.touchscreen.tap(box2.x + (tx / vw[0]) * box2.width, box2.y + (ty / vw[1]) * box2.height);
+await page.waitForFunction(() => !document.getElementById("btnAnalyse").disabled);
+await page.tap("#btnAnalyse");
+await page.waitForFunction(() => /Saved in the gallery/.test(document.getElementById("resSaved").textContent), null, { timeout: 240000 });
+await setKg(70);
+const second = await page.evaluate(() => ({ title: window.__barpath.R.title, frames: window.__barpath.samples.length, kg: window.__barpath.R.kg }));
+console.log("second lift:", JSON.stringify(second));
+
+await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+await page.tap("#btnGallery2");
+await page.waitForFunction(() => document.querySelectorAll("#galList .lift").length === 2, null, { timeout: 10000 });
+await page.waitForTimeout(300);
+console.log("gallery:", await page.textContent("#galSummary"), "|", (await page.$$eval("#galList .lift .txt", (a) => a.map((e) => e.innerText.replace(/\n/g, " / ")))).join(" || "));
+await page.screenshot({ path: `${outDir}/10-gallery.png` });
+
+// open the older one: its analysis comes back without tracking
+const t1 = Date.now();
+let tracked = false;
+const watch = setInterval(async () => { if (await page.isVisible("#running").catch(() => false)) tracked = true; }, 50);
+await page.tap("#galList .lift:last-child .open");
+await page.waitForFunction(() => !document.getElementById("results").hidden && /From the gallery/.test(document.getElementById("resSaved").textContent), null, { timeout: 30000 });
+clearInterval(watch);
+const reopened = await page.evaluate(() => ({ title: window.__barpath.R.title, frames: window.__barpath.samples.length, start: window.__barpath.start, kg: window.__barpath.R.kg, input: document.getElementById("kg").value }));
+if (reopened.kg !== 60 || reopened.input !== "60") throw new Error("the saved lift should keep its load");
+console.log(`reopened in ${((Date.now() - t1) / 1000).toFixed(1)} s, tracked again: ${tracked}:`, JSON.stringify(reopened));
+if (tracked || reopened.frames !== R.frames) throw new Error("reopening a saved lift should bring back its frames, not track again");
+await page.screenshot({ path: `${outDir}/11-reopened.png` });
+await page.goBack(); // the phone's Back: to the gallery
+await page.waitForSelector("#gallery:not([hidden])");
+
+// compare the two
+for (const b of await page.$$("#galList .pick input")) await b.check();
+await page.tap("#btnGalCompare");
+await page.waitForSelector("#compare:not([hidden])");
+await page.waitForFunction(() => { const C = window.__barpathCompare; return C.L.length === 2 && C.L.every((l) => l.video.readyState >= 2 && !l.busy); }, null, { timeout: 30000 });
+await page.waitForTimeout(300);
+await page.screenshot({ path: `${outDir}/12-compare.png` });
+await page.screenshot({ path: `${outDir}/13-compare-full.png`, fullPage: true });
+const sp = await page.locator("#cmpSpeed").boundingBox();
+await page.locator("#cmpSpeed").scrollIntoViewIfNeeded();
+const sp2 = await page.locator("#cmpSpeed").boundingBox();
+await touchDrag(sp2.x + sp2.width * 0.3, sp2.y + sp2.height / 2, sp2.x + sp2.width * 0.55, 6);
+await page.waitForFunction(() => window.__barpathCompare.L.every((l) => !l.busy && !l.video.seeking), null, { timeout: 10000 });
+const sync = await page.evaluate(() => { const C = window.__barpathCompare; return { tau: C.tau, off: C.L.map((l) => Math.abs(l.video.currentTime - C.vt(l, C.tau))), rows: document.querySelectorAll("#cmpTable tr").length, cols: document.querySelectorAll("#cmpTable tr:first-child th").length,
+  power: [...document.querySelectorAll("#cmpTable tr")].filter((tr) => /^(Load|Peak power)/.test(tr.firstChild?.textContent || "")).map((tr) => tr.innerText.replace(/\s+/g, " ")) }; });
+console.log("compare scrub:", JSON.stringify(sync));
+if (sync.off.some((d) => d > 0.05)) throw new Error("the compared videos aren't at the same moment of their lifts");
+await page.tap("#cmpPlay");
+await page.waitForTimeout(1500);
+const playing = await page.evaluate(() => { const C = window.__barpathCompare; return { tau: +C.tau.toFixed(3), playing: C.playing, off: C.L.map((l) => +Math.abs(l.video.currentTime - C.vt(l, C.tau)).toFixed(3)) }; });
+console.log("compare play:", JSON.stringify(playing));
+await page.tap("#cmpPlay");
+
+// kept across a reload; delete one
+await page.reload();
+await page.waitForFunction(() => document.getElementById("btnGallery").textContent === "Gallery · 2", null, { timeout: 10000 });
+await page.tap("#btnGallery");
+await page.waitForFunction(() => document.querySelectorAll("#galList .lift").length === 2);
+await (await page.$("#galList .lift:first-child .pick input")).check();
+await page.tap("#btnGalDelete");
+await page.waitForFunction(() => document.querySelectorAll("#galList .lift").length === 1, null, { timeout: 10000 });
+console.log("after a reload and deleting one:", await page.textContent("#galSummary"));
 console.log(errors.length ? "PAGE ERRORS:\n" + errors.join("\n") : "no page errors");
 await browser.close();
 server.close();
