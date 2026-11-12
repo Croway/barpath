@@ -3,6 +3,10 @@
 Weightlifting analysis from one phone. Film a lift side-on and get the bar path, bar speed and coaching checks —
 on the phone, offline, nothing uploaded. An installable web app (PWA), built for a Galaxy S23 in Chrome.
 
+**Open it: <https://croway.github.io/barpath/>** — then *Install* (Chrome) or *Share → Add to Home Screen*
+(Safari). To pass it on, tap **Share app**: a QR code to scan from the phone next to you, or the link sent through
+any app.
+
 | Lift | What you get |
 |---|---|
 | Snatch, clean (& jerk) | stages (first pull, transition, second pull, turnover, recovery), peak speed and height, drop, catch position, squat vs power catch; checks: off the floor, second pull loop, transition, catch |
@@ -18,6 +22,10 @@ shoulders; where the bar finishes), from the bar alone otherwise — and can be 
 
 ## How it works
 
+0. **The part to analyse.** Under the video, a filmstrip of the whole clip with two handles: drag them to the lift
+   (start just before it, bar still; end once it's done) so the walk-in, the drop and picking the phone up are
+   left out. ‹ › move the last-touched handle one frame; *Play* plays the chosen part. The plate is marked on the
+   start frame; moving the start afterwards finds the plate again there.
 1. **Plate.** You tap the middle of the plate nearest the camera. A circular Hough transform on colour edges
    finds its rim; a fit of the circle's centre (radius fixed within a tight band, so the plate's raised lip
    can't pull it off) follows it frame by frame. A bumper plate is 450 mm across, so its size on screen gives
@@ -46,6 +54,16 @@ npm run vendor              # MediaPipe runtime + pose models into vendor/ (~33 
 npm run serve               # http://localhost:8765
 ```
 
+## Publish and share
+
+`.github/workflows/pages.yml` publishes the app to GitHub Pages (<https://croway.github.io/barpath/>) on every
+push to `main`: it fetches MediaPipe (`tools/fetch-vendor.sh`) and uploads only the files the app serves. The
+public address is also the `canonical` link in `index.html`, which **Share app** hands out when the app runs from
+a development server. Friends' phones download the app (about 20 MB with the pose model) and nothing else; their
+videos stay on their phones.
+
+## Develop on the phone
+
 On the phone (adb, wireless debugging works): `tools/phone.sh [device]` serves it as `http://localhost:8765`,
 a secure origin, so the in-app camera, the service worker and *Install app* all work without HTTPS. Once
 installed it runs offline; it updates whenever it can reach the server again. Share a video from the Gallery
@@ -54,23 +72,25 @@ to **Bar Path** to open it straight in the app.
 ## Test
 
 ```bash
-npm test                                            # snatch at 30/60/240 fps, drop-outs, mirrored; squat, deadlift, bench, press on a synthetic lifter
+npm test                                            # snatch at 30/60/240 fps, drop-outs, mirrored; squat, deadlift, bench, press on a synthetic lifter; QR codes read back
 node test/synth.mjs /tmp/q.mp4 --lift squat         # synthetic squat video (3 reps, slowing down)
 node test/synth.mjs /tmp/s.mp4                      # synthetic side-on snatch video + ground truth
 node test/track.test.mjs /tmp/s.mp4                 # tracker vs truth (crop + scale per frame like the browser)
 node test/analysis.test.mjs /tmp/s.mp4              # tracked → analysis vs truth
-node test/e2e.mjs . /tmp/s.mp4 /tmp/s.truth.json /tmp/out          # the app in headless Chrome at S23 size
-node test/e2e.mjs . real.mp4 - /tmp/out --at 11 --tap 307,551      # a real clip: scrub to the set-up, tap
+node test/e2e.mjs . /tmp/s.mp4 /tmp/s.truth.json /tmp/out --at 0.4 --end 4   # the app in headless Chrome at S23 size
+node test/e2e.mjs . real.mp4 - /tmp/out --at 7 --end 11.5 --tap 760,1460      # a real clip: drag the handles, tap the plate
 ```
 
-`test/phone.mjs` runs the same flow in Chrome on the phone.
+`test/phone.mjs` runs the same flow in Chrome on the phone (the handles dragged with real touches).
 
 ## Layout
 
 | Path | What |
 |---|---|
 | `index.html`, `css/app.css` | the page; colour tokens for both themes |
-| `js/app.js` | screens and flow: record/pick, mark, track, results, replay, export, install, share target |
+| `js/app.js` | screens and flow: record/pick, choose the part, mark, track, results, replay, export, install, share target |
+| `js/trim.js` | the timeline: filmstrip, start/end handles, playhead |
+| `js/share.js`, `js/qr.js` | Share app: the link, the system share sheet, a QR code encoder (no library) |
 | `js/plate.js` | plate detection and tracking |
 | `js/analysis.js` | smoothing, scale, events, stages, measurements, checks |
 | `js/video.js` | frames in order with true timestamps (`requestVideoFrameCallback`, adaptive rate) |
@@ -79,6 +99,7 @@ node test/e2e.mjs . real.mp4 - /tmp/out --at 11 --tap 307,551      # a real clip
 | `js/charts.js`, `js/overlay.js` | charts; drawing on the video |
 | `sw.js`, `manifest.webmanifest`, `icons/` | the installable app |
 | `test/`, `tools/` | tests, synthetic video, vendor fetch, icon render, phone helper |
+| `.github/workflows/pages.yml` | publishing to GitHub Pages |
 
 ## Limits
 

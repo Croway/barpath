@@ -9,6 +9,8 @@
   --s1-on: #fff; --s2-on: #fff; --s3-on: #fff; --s4-on: #0b0b0b; --s5-on: #fff;
   --ramp: #86b6ef, #5598e7, #2a78d6, #1c5cab, #104281;
   --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+  /* timeline over the filmstrip, and QR codes: the same in both themes (scanners want dark on light) */
+  --film: #000; --trim-shade: rgba(0, 0, 0, 0.62); --head: #fff; --qr-ink: #000; --qr-paper: #fff;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --viewer-max-h: 58vh;
 }
@@ -46,9 +48,10 @@ h1, h2, h3 { margin: 0; line-height: 1.2; }
 
 .top { max-width: 760px; margin: 0 auto; padding: 16px 16px 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .top .logo { width: 30px; height: 30px; flex: none; }
-.top .install { margin-left: auto; min-height: 36px; padding: 0 14px; font-size: 14px; }
+.top-actions { margin-left: auto; display: flex; gap: 6px; order: 1; }
+.top-actions button { min-height: 36px; padding: 0 12px; font-size: 14px; }
 .top h1 { font-size: 20px; font-weight: 650; }
-.top p { margin: 0; color: var(--ink-2); font-size: 13px; }
+.top p { margin: 0; color: var(--ink-2); font-size: 13px; order: 2; flex-basis: 100%; }
 
 .panel, .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin: 12px 0; }
 .panel h2 { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
@@ -95,10 +98,43 @@ input[type="range"] { width: 100%; accent-color: var(--accent); min-height: 32px
   position: absolute; left: 8px; top: 8px; padding: 4px 10px; border-radius: 8px; font-size: 13px;
   background: rgba(0, 0, 0, 0.6); color: #fff; font-variant-numeric: tabular-nums; pointer-events: none;
 }
-.scrub { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.scrub { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
 .scrub button { min-width: 44px; padding: 0; font-size: 22px; }
-.scrub input { flex: 1; }
-.scrub .num { min-width: 64px; text-align: right; color: var(--ink-2); font-size: 13px; }
+.scrub .num { flex: 1; min-width: 0; color: var(--ink-2); font-size: 13px; padding-left: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scrub .play { font-size: 15px; padding: 0 14px; }
+
+/* the timeline: filmstrip, the chosen part between two handles, a playhead */
+.timeline { position: relative; height: 56px; margin-top: 8px; touch-action: none; user-select: none; -webkit-user-select: none; cursor: pointer; }
+.timeline .film { position: absolute; top: 4px; left: 22px; width: calc(100% - 44px); height: 48px; background: var(--film); border-radius: 3px; display: block; }
+.timeline .shade { position: absolute; top: 4px; height: 48px; background: var(--trim-shade); pointer-events: none; }
+.timeline .sel { position: absolute; top: 0; height: 56px; border-top: 4px solid var(--accent); border-bottom: 4px solid var(--accent); pointer-events: none; }
+.timeline .handle { position: absolute; top: 0; width: 22px; height: 56px; background: var(--accent); }
+.timeline .handle.in { border-radius: 10px 0 0 10px; }
+.timeline .handle.out { border-radius: 0 10px 10px 0; }
+.timeline .handle::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 20px; margin: -10px 0 0 -2px;
+  border-radius: 2px; background: var(--on-accent);
+}
+.timeline .handle[data-on="true"] { box-shadow: 0 0 0 2px var(--page), 0 0 0 4px var(--ink); z-index: 1; }
+.timeline .head { position: absolute; top: -3px; width: 4px; height: 62px; margin-left: -2px; border-radius: 2px; background: var(--head); box-shadow: 0 0 0 1px var(--trim-shade); pointer-events: none; z-index: 2; }
+.timeline[data-mode="scrub"] .sel { border-color: var(--axis); }
+.timeline[data-mode="scrub"] .handle { background: var(--axis); cursor: default; }
+.timeline[data-mode="scrub"] .handle::after { background: var(--surface); }
+.timeline[data-mode="off"] { opacity: 0.55; cursor: default; }
+
+/* share the app */
+dialog.sheet {
+  border: 1px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--ink);
+  padding: 20px 16px 16px; width: min(380px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px);
+}
+dialog.sheet::backdrop { background: var(--trim-shade); }
+dialog.sheet h2 { font-size: 17px; font-weight: 600; }
+.qr { width: min(240px, 64vw); margin: 14px auto 0; border-radius: 10px; overflow: hidden; }
+.qr svg { display: block; width: 100%; height: auto; }
+.qr .paper { fill: var(--qr-paper); }
+.qr .ink { fill: var(--qr-ink); }
+.share-link { margin: 10px 0 0; text-align: center; font-weight: 600; overflow-wrap: anywhere; }
+dialog.sheet .actions > * { flex: 1 1 auto; }
 
 /* camera */
 .viewer.cam { aspect-ratio: 16 / 9; }

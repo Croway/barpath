@@ -1,11 +1,13 @@
-// End-to-end in headless Google Chrome at Galaxy S23 size (360x780 CSS px, DPR 3, touch): load a video, scrub,
-// tap the plate, analyse, scrub the charts, replay. Screenshots and the tracked samples go to <out dir>.
-//   node test/e2e.mjs . <video.mp4> <truth.json | -> <out dir> [--at s] [--tap x,y] [--pose off|lite|full] [--dark]
+// End-to-end in headless Google Chrome at Galaxy S23 size (360x780 CSS px, DPR 3, touch): load a video, drag the
+// timeline's handles to the part to analyse, tap the plate, analyse, scrub the charts, replay, share the app.
+// Screenshots and the tracked samples go to <out dir>.
+//   node test/e2e.mjs . <video.mp4> <truth.json | -> <out dir> [--at s] [--end s] [--tap x,y] [--pose off|lite|full] [--dark]
 //   synthetic: node test/synth.mjs /tmp/s.mp4 && node test/e2e.mjs . /tmp/s.mp4 /tmp/s.truth.json /tmp/out
 import { chromium } from "playwright-core";
 import http from "node:http";
 import { readFileSync, existsSync, statSync } from "node:fs";
-import { join, extname } from "node:path";
+import { join, extname, resolve, sep } from "node:path";
+import jsQR from "jsqr";
 
 const [appDir, videoPath, truthPath, outDir] = process.argv.slice(2);
 const arg = (k, d) => { const i = process.argv.indexOf("--" + k); return i >= 0 ? process.argv[i + 1] : d; };
@@ -15,8 +17,8 @@ const tapArg = arg("tap", null);
 
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json", ".webmanifest": "application/manifest+json", ".wasm": "application/wasm", ".png": "image/png" };
 const server = http.createServer((req, res) => {
-  const p = join(appDir, decodeURIComponent(req.url.split("?")[0]) === "/" ? "index.html" : decodeURIComponent(req.url.split("?")[0]));
-  if (!p.startsWith(appDir) || !existsSync(p) || statSync(p).isDirectory()) { res.writeHead(404); return res.end(); }
+  const root = resolve(appDir), p = join(root, decodeURIComponent(req.url.split("?")[0]) === "/" ? "index.html" : decodeURIComponent(req.url.split("?")[0]));
+  if (!p.startsWith(root + sep) || !existsSync(p) || statSync(p).isDirectory()) { res.writeHead(404); return res.end(); }
   res.writeHead(200, { "Content-Type": TYPES[extname(p)] || "application/octet-stream" });
   res.end(readFileSync(p));
 });
@@ -28,6 +30,25 @@ if (camera) args.push("--use-fake-device-for-media-stream", "--use-fake-ui-for-m
 const browser = await chromium.launch({ channel: "chrome", headless: true, args });
 const ctx = await browser.newContext({ viewport: { width: 360, height: 780 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, colorScheme: dark ? "dark" : "light", permissions: camera ? ["camera"] : [] });
 const page = await ctx.newPage();
+const cdp = await ctx.newCDPSession(page);
+/** a finger dragged across the screen (CSS px), as the phone delivers it: touch → pointer events */
+async function touchDrag(x0, y, x1, steps = 14) {
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: x0, y }] });
+  for (let i = 1; i <= steps; i++) {
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x0 + ((x1 - x0) * i) / steps, y }] });
+    await page.waitForTimeout(20);
+  }
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+}
+/** drag a timeline handle ("in" or "out") from its middle until its edge sits at video time t */
+async function dragHandle(which, t) {
+  const g = await page.evaluate((w) => {
+    const tl = document.getElementById("timeline").getBoundingClientRect(), h = document.querySelector(`.timeline .handle.${w}`).getBoundingClientRect();
+    return { left: tl.left, width: tl.width, hx: h.left + h.width / 2, hy: h.top + h.height / 2, hw: h.width, d: document.getElementById("video").duration };
+  }, which);
+  const x = g.left + g.hw + (t / g.d) * (g.width - 2 * g.hw) + (which === "in" ? -g.hw / 2 : g.hw / 2);
+  await touchDrag(g.hx, g.hy, x);
+}
 const errors = [];
 page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
 page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") errors.push(`console.${m.type()}: ${m.text()}`); });
@@ -53,13 +74,24 @@ if (camera) {
 await page.waitForFunction(() => /fps/.test(document.getElementById("videoInfo").textContent), null, { timeout: 30000 });
 console.log("video:", await page.textContent("#videoInfo"));
 
-// scrub to the set-up (--at seconds), then tap the plate
-const at = arg("at", null);
+// choose the part: the end handle to --end, the start handle to the set-up (--at seconds); then tap the plate
+const at = arg("at", null), endAt = arg("end", null);
+const settled = (t) => page.waitForFunction((t) => Math.abs(document.getElementById("video").currentTime - t) < 0.02 && !document.getElementById("video").seeking, t, { timeout: 10000 });
+if (endAt) {
+  await dragHandle("out", +endAt);
+  const S = await page.evaluate(() => ({ start: window.__barpath.start, end: window.__barpath.end }));
+  if (Math.abs(S.end - +endAt) > 0.05) throw new Error(`end handle at ${S.end}, wanted ${endAt}`);
+  await settled(S.start); // letting go of the end handle shows the start frame again
+}
 if (at) {
-  await page.evaluate((t) => { const s = document.getElementById("scrub"), v = document.getElementById("video"); s.value = String(Math.round((t / v.duration) * 10000)); s.dispatchEvent(new Event("input")); }, +at);
-  await page.waitForFunction((t) => Math.abs(document.getElementById("video").currentTime - t) < 0.05 && !document.getElementById("video").seeking, +at, { timeout: 10000 });
+  await dragHandle("in", +at);
+  const st = await page.evaluate(() => window.__barpath.start);
+  if (Math.abs(st - +at) > 0.05) throw new Error(`start handle at ${st}, wanted ${at}`);
+  await settled(st);
   await page.waitForTimeout(300);
 }
+console.log("part:", await page.textContent("#timeRead"));
+await page.screenshot({ path: `${outDir}/02-part.png` });
 const box = await page.locator("#overlay").boundingBox();
 const vw = await page.evaluate(() => [window.__barpath.W, window.__barpath.H]);
 let tx, ty;
@@ -68,6 +100,7 @@ else { tx = T.start.x * (vw[0] / T.W) + 0.2 * T.R * (vw[0] / T.W); ty = T.start.
 await page.touchscreen.tap(box.x + (tx / vw[0]) * box.width, box.y + (ty / vw[1]) * box.height);
 await page.waitForFunction(() => !document.getElementById("btnAnalyse").disabled);
 const plate = await page.evaluate(() => window.__barpath.plate);
+if (at && Math.abs((await page.evaluate(() => window.__barpath.start)) - +at) > 0.05) throw new Error("tapping the plate moved the start");
 console.log("plate:", JSON.stringify(plate), T && !camera ? `truth (${T.start.x}, ${T.start.y}) r ${T.R.toFixed(1)}` : "");
 console.log("mark:", await page.textContent("#markInstr"));
 await page.screenshot({ path: `${outDir}/03-marked.png` });
@@ -82,6 +115,10 @@ if (await page.isHidden("#results")) {
   console.log(errors.join("\n"));
   await browser.close(); server.close(); process.exit(1);
 }
+// only the chosen part was tracked
+const part = await page.evaluate(() => { const S = window.__barpath; return { start: S.start, end: S.end ?? S.duration, first: S.samples[0].t, last: S.samples[S.samples.length - 1].t, fps: S.fps }; });
+if (Math.abs(part.first - part.start) > 1e-3 || part.last > part.end + 1 / part.fps || part.last < part.end - 3 / part.fps) throw new Error(`tracked ${part.first}..${part.last}, chose ${part.start}..${part.end}`);
+console.log(`tracked ${part.first.toFixed(3)}–${part.last.toFixed(3)} s of the chosen ${part.start.toFixed(3)}–${part.end.toFixed(3)} s`);
 const R = await page.evaluate(() => {
   const S = window.__barpath, R = S.R;
   return { title: R.title, sub: document.getElementById("resSub").textContent, vmax: R.vmax, peak: R.H[R.ev.peak], catch: R.H[R.ev.catch], stand: R.H[R.ev.stand],
@@ -109,6 +146,25 @@ await page.waitForTimeout(2500);
 const played = await page.evaluate(() => ({ cursor: window.__barpath.cursor, t: document.getElementById("video").currentTime, playing: window.__barpath.playing }));
 console.log("replay:", JSON.stringify(played));
 await page.screenshot({ path: `${outDir}/08-replay.png` });
+
+// share the app: the dialog's QR code, drawn from its SVG, read back by an independent decoder
+await page.tap("#btnShareApp");
+await page.waitForSelector("#shareDlg[open]");
+await page.waitForTimeout(200);
+await page.screenshot({ path: `${outDir}/09-share.png` });
+const img = await page.evaluate(async () => {
+  const svg = document.querySelector("#shareQr svg"), n = 400, c = Object.assign(document.createElement("canvas"), { width: n, height: n });
+  const xml = new XMLSerializer().serializeToString(svg).replace(/class="paper"/, 'fill="#fff"').replace(/class="ink"/, 'fill="#000"');
+  const im = new Image();
+  im.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+  await im.decode();
+  c.getContext("2d").drawImage(im, 0, 0, n, n);
+  return { px: Array.from(c.getContext("2d").getImageData(0, 0, n, n).data), n, link: document.getElementById("shareLink").textContent, canonical: document.querySelector('link[rel="canonical"]').href };
+});
+const qr = jsQR(Uint8ClampedArray.from(img.px), img.n, img.n);
+console.log("share:", img.link, "| QR reads", qr ? qr.data : "nothing");
+if (!qr || qr.data !== img.canonical) throw new Error(`the QR code should carry ${img.canonical}`);
+await page.tap("#btnShareClose");
 console.log(errors.length ? "PAGE ERRORS:\n" + errors.join("\n") : "no page errors");
 await browser.close();
 server.close();

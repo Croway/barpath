@@ -8,6 +8,7 @@
 <title>Bar Path</title>
 <meta name="description" content="Weightlifting bar path, bar speed and lift stages from one phone video.">
 <link rel="manifest" href="manifest.webmanifest">
+<link rel="canonical" href="https://croway.github.io/barpath/">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="css/app.css">
@@ -17,8 +18,23 @@
   <img class="logo" src="icons/icon.svg" alt="" width="30" height="30">
   <h1>Bar Path</h1>
   <p>Weightlifting analysis from one phone</p>
-  <button id="btnInstall" class="install" type="button" hidden>Install</button>
+  <div class="top-actions">
+    <button id="btnInstall" type="button" hidden>Install</button>
+    <button id="btnShareApp" type="button" aria-haspopup="dialog">Share app</button>
+  </div>
 </header>
+
+<dialog id="shareDlg" class="sheet" aria-labelledby="shareTitle">
+  <h2 id="shareTitle">Share Bar Path</h2>
+  <div class="qr" id="shareQr"></div>
+  <p class="share-link" id="shareLink"></p>
+  <p class="hint" id="shareNote"></p>
+  <div class="actions">
+    <button id="btnShareSend" class="primary" type="button">Send link</button>
+    <button id="btnShareCopy" type="button">Copy link</button>
+    <button id="btnShareClose" type="button">Done</button>
+  </div>
+</dialog>
 
 <main>
   <!-- 1 · get a video -->
@@ -38,6 +54,7 @@
     <input id="fileInput" type="file" accept="video/*" hidden>
     <input id="captureInput" type="file" accept="video/*" capture="environment" hidden>
     <p class="hint" id="recordHint"></p>
+    <p class="hint" id="installHint" hidden>To keep it on the home screen: Safari's Share button → <b>Add to Home Screen</b>.</p>
     <p class="hint" id="shareHint" hidden>Tip: in your Gallery, share a video to <b>Bar Path</b> to open it here.</p>
   </section>
 
@@ -63,15 +80,16 @@
       <canvas id="overlay"></canvas>
       <div class="hud" id="hud" hidden></div>
     </div>
+    <div class="timeline" id="timeline" role="group" aria-label="Part of the video to analyse"></div>
     <div class="scrub">
-      <button id="btnPrev" type="button" aria-label="Previous frame">‹</button>
-      <input id="scrub" type="range" min="0" max="10000" value="0" step="1" aria-label="Position in the video">
-      <button id="btnNext" type="button" aria-label="Next frame">›</button>
-      <span id="timeRead" class="num">0.00 s</span>
+      <button id="btnPrev" type="button" aria-label="Back one frame">‹</button>
+      <button id="btnNext" type="button" aria-label="Forward one frame">›</button>
+      <span id="timeRead" class="num" aria-live="polite"></span>
+      <button id="btnPreview" class="play" type="button" aria-label="Play the chosen part">Play</button>
     </div>
 
     <div id="mark" class="panel">
-      <p class="instr" id="markInstr">Scrub to just before the lift starts, then <b>tap the middle of the plate nearest the camera</b>.</p>
+      <p class="instr" id="markInstr"></p>
       <div class="field" id="sizeField" hidden>
         <label for="plateSize">Circle size</label>
         <input id="plateSize" type="range" min="70" max="130" value="100">
@@ -79,7 +97,6 @@
       </div>
       <div class="actions">
         <button id="btnAnalyse" class="primary" type="button" disabled>Analyse</button>
-        <button id="btnEnd" type="button">End here</button>
         <button id="btnNew" type="button">New video</button>
       </div>
       <p class="hint" id="videoInfo"></p>

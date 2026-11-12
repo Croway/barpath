@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "serve": "python3 -m http.server 8765 --bind 0.0.0.0",
-    "test": "node test/analysis.test.mjs --ideal && node test/lifts.test.mjs",
+    "test": "node test/analysis.test.mjs --ideal && node test/lifts.test.mjs && node test/qr.test.mjs",
     "icons": "node tools/render-icons.mjs",
     "vendor": "./tools/fetch-vendor.sh"
   },
   "devDependencies": {
+    "jsqr": "1.4.0",
     "playwright-core": "1.56.1"
   }
 }

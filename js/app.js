@@ -6,6 +6,8 @@ import * as V from "./video.js";
 import * as Pose from "./pose.js";
 import * as Rec from "./recorder.js";
 import * as Ov from "./overlay.js";
+import { Timeline } from "./trim.js";
+import { initShare } from "./share.js";
 import { drawPath, drawSpeed, drawReps, pathHit, speedHit, fillTip, rampCss, span, where } from "./charts.js";
 
 const $ = (id) => document.getElementById(id);
@@ -46,7 +48,12 @@ function setMode(m) {
   $("results").hidden = m !== "results";
   $("hud").hidden = m !== "results";
   $("settings").hidden = m === "camera" || m === "running";
-  for (const id of ["btnPrev", "btnNext", "scrub"]) $(id).disabled = m === "running";
+  for (const id of ["btnPrev", "btnNext"]) $(id).disabled = m === "running";
+  $("btnPreview").hidden = m !== "mark";
+  stopPreview();
+  TL.setMode(m === "mark" ? "trim" : m === "results" ? "scrub" : "off");
+  if (m === "mark") TL.setHead(null);
+  readout();
 }
 
 /* ------------------------------------------------------------------ frames → pixels */
@@ -67,7 +74,10 @@ async function openVideo(file, name, recorded) {
   $("btnSaveVideo").hidden = !recorded;
   $("sizeField").hidden = true;
   $("btnAnalyse").disabled = true;
-  $("markInstr").innerHTML = "Scrub to the set-up, bar on the floor, then <b>tap the middle of the plate nearest the camera</b>.";
+  $("markInstr").replaceChildren(
+    "Drag the handles under the video to the part with the lift: the start just before it, bar still. Then ",
+    Object.assign(document.createElement("b"), { textContent: "tap the middle of the plate nearest the camera" }), ".");
+  TL.setVideo(0, 30);
   setMode("mark");
   $("videoInfo").textContent = "Opening the video…";
   try {
@@ -76,6 +86,8 @@ async function openVideo(file, name, recorded) {
     Ov.fitViewer(viewer, S.W, S.H);
     S.fps = (await V.probeFps(video)) || 30;
     await V.seek(video, 0);
+    TL.setVideo(S.duration, S.fps);
+    TL.filmstrip(S.src);
     shown();
     videoInfo();
   } catch (e) {
@@ -85,57 +97,134 @@ async function openVideo(file, name, recorded) {
 }
 function videoInfo() {
   const parts = [`${S.W}×${S.H}`, `${Math.round(S.fps)} fps`, `${S.duration.toFixed(1)} s`];
-  if (S.plate) parts.push(`from ${S.start.toFixed(2)} s to ${(S.end ?? S.duration).toFixed(2)} s`);
   $("videoInfo").textContent = parts.join(" · ") + (S.fps >= 100 ? ". High frame rate: if it plays in real time, keep Video speed on Real time." : "");
 }
 
-/* ------------------------------------------------------------------ scrubbing */
-let seekBusy = false, seekWant = null;
-async function seekTo(t) {
+/* ------------------------------------------------------------------ scrubbing and choosing the part */
+let seekBusy = null, seekWant = null;
+/** seek, coalescing a burst of requests (a drag) into the latest; resolves when the video has settled */
+function seekTo(t) {
   seekWant = clamp(t, 0, S.duration || 0);
-  if (seekBusy) return;
-  seekBusy = true;
-  try { while (seekWant !== null) { const x = seekWant; seekWant = null; await V.seek(video, x); } } catch { /* a newer seek wins */ }
-  seekBusy = false;
-  shown();
+  seekBusy ??= (async () => {
+    try { while (seekWant !== null) { const x = seekWant; seekWant = null; await V.seek(video, x); } } catch { /* a newer seek wins */ }
+    seekBusy = null;
+    shown();
+  })();
+  return seekBusy;
 }
+const endT = () => S.end ?? S.duration;
 function shown(t = video.currentTime) {
-  if (S.duration) $("scrub").value = String(Math.round((t / S.duration) * 10000));
-  $("timeRead").textContent = `${t.toFixed(2)} s`;
+  if (S.mode === "results") TL.setHead(clamp(t, S.start, endT()));
+  readout(t);
   redrawOverlay(t);
 }
-$("scrub").addEventListener("input", () => { stopPlayback(); seekTo((+$("scrub").value / 10000) * S.duration); });
-$("btnPrev").addEventListener("click", () => { stopPlayback(); seekTo(video.currentTime - 1 / S.fps); });
-$("btnNext").addEventListener("click", () => { stopPlayback(); seekTo(video.currentTime + 1 / S.fps); });
+/** under the timeline: the chosen part while choosing it, the position in the video otherwise */
+function readout(t = video.currentTime) {
+  $("timeRead").textContent = S.mode === "mark" && !preview
+    ? `${S.start.toFixed(2)}–${endT().toFixed(2)} s · ${(endT() - S.start).toFixed(2)} s`
+    : `${t.toFixed(2)} s`;
+}
+const onStart = (t) => Math.abs(t - S.start) < 0.5 / S.fps; // is the video showing the frame the analysis starts on?
+
+const TL = new Timeline($("timeline"), {
+  onInput(what, t) {
+    stopPlayback();
+    stopPreview();
+    if (what === "in") S.start = t;
+    if (what === "out") S.end = t >= S.duration - 1e-6 ? null : t;
+    if (what === "head" && S.R) { S.cursor = S.R.indexAt(t); drawCharts(); }
+    seekTo(t);
+    readout();
+  },
+  async onCommit(what, t, nudged) {
+    if (S.mode !== "mark") return;
+    // the plate is marked on the start frame: let go of the end and the picture goes back there
+    if (what === "out" && !nudged) await seekTo(S.start);
+    if (what === "in") { await seekTo(S.start); refindPlate(); }
+  },
+});
+$("btnPrev").addEventListener("click", () => { stopPlayback(); TL.step(-1); });
+$("btnNext").addEventListener("click", () => { stopPlayback(); TL.step(1); });
+
+/* play the chosen part, to check the whole lift is in it */
+let preview = false;
+async function startPreview() {
+  stopPlayback();
+  preview = true;
+  $("btnPreview").textContent = "Stop";
+  await seekTo(S.start);
+  if (!preview) return;
+  video.playbackRate = 1;
+  const frame = (t) => {
+    if (!preview) return false;
+    if (t >= endT()) { stopPreview(); return false; }
+    TL.setHead(t);
+    readout(t);
+    redrawOverlay(t);
+    return true;
+  };
+  if (V.hasRVFC) { const cb = (now, m) => { if (frame(m.mediaTime)) video.requestVideoFrameCallback(cb); }; video.requestVideoFrameCallback(cb); }
+  else { const loop = () => { if (frame(video.currentTime)) requestAnimationFrame(loop); }; requestAnimationFrame(loop); }
+  video.addEventListener("ended", stopPreview, { once: true });
+  video.play().catch(() => stopPreview());
+}
+function stopPreview() {
+  if (!preview) return;
+  preview = false;
+  video.pause();
+  $("btnPreview").textContent = "Play";
+  TL.setHead(null);
+  seekTo(S.start);
+}
+$("btnPreview").addEventListener("click", () => (preview ? stopPreview() : startPreview()));
 
 /* ------------------------------------------------------------------ marking the plate */
-overlay.addEventListener("pointerdown", (e) => {
-  if (S.mode !== "mark" || !S.W) return;
-  const rc = overlay.getBoundingClientRect();
-  const x = ((e.clientX - rc.left) / rc.width) * S.W, y = ((e.clientY - rc.top) / rc.height) * S.H;
+/** the plate around (x, y) on the frame shown; found = its rim was seen, otherwise a guess the user sizes */
+function findPlate(x, y) {
   const m = Math.min(S.W, S.H), side = 0.8 * m, k = 320 / side;
   const sx = clamp(x - side / 2, 0, S.W - side), sy = clamp(y - side / 2, 0, S.H - side);
   const d = detectAt(grab(video, sx, sy, side, side, 320, 320), (x - sx) * k, (y - sy) * k, 0.03 * m * k, 0.3 * m * k);
-  let found = d.coverage >= 0.45;
-  S.plate = found ? { x: sx + d.x / k, y: sy + d.y / k, r: d.r / k } : { x, y, r: 0.07 * m };
-  if (found && Math.hypot(S.plate.x - x, S.plate.y - y) > 0.9 * S.plate.r) { S.plate = { x, y, r: 0.07 * m }; found = false; }
+  const p = { x: sx + d.x / k, y: sy + d.y / k, r: d.r / k };
+  return d.coverage >= 0.45 && Math.hypot(p.x - x, p.y - y) <= 0.9 * p.r ? { ...p, found: true } : { x, y, r: 0.07 * m, found: false };
+}
+/** the start moved after the plate was marked: find it again on the new start frame, near where it was */
+function refindPlate() {
+  if (!S.plate || S.mode !== "mark" || !onStart(video.currentTime)) return;
+  const p = findPlate(S.plate.x, S.plate.y);
+  if (p.found && Math.abs(p.r - S.plate.r) < 0.25 * S.plate.r) {
+    S.plate = { x: p.x, y: p.y, r: p.r };
+    S.r0 = p.r;
+    $("plateSize").value = "100";
+    $("markInstr").textContent = "Plate found again on the new start frame. Check the circle sits on its outer edge, then Analyse.";
+  } else {
+    $("markInstr").textContent = "New start frame: check the circle still sits on the plate. If it doesn't, tap the plate's middle.";
+  }
+  redrawOverlay();
+}
+overlay.addEventListener("pointerdown", (e) => {
+  if (S.mode !== "mark" || !S.W || seekBusy || video.seeking) return;
+  stopPreview();
+  const t = video.currentTime;
+  if (t > endT() - TL.minSpan + 1e-3) {
+    $("markInstr").textContent = "This is the end of the part to analyse. Tap the plate on its first frame, shown now.";
+    seekTo(S.start);
+    return;
+  }
+  const rc = overlay.getBoundingClientRect();
+  const p = findPlate(((e.clientX - rc.left) / rc.width) * S.W, ((e.clientY - rc.top) / rc.height) * S.H), found = p.found;
+  S.plate = { x: p.x, y: p.y, r: p.r };
   S.r0 = S.plate.r;
-  S.start = video.currentTime;
+  if (!onStart(t)) { S.start = t; TL.setRange(S.start, endT()); } // the analysis starts on the frame the plate is marked on
   $("plateSize").value = "100";
   $("sizeField").hidden = false;
   $("btnAnalyse").disabled = false;
   $("markInstr").textContent = found
     ? "Plate found. Check the circle sits on its outer edge, then Analyse."
     : "Couldn't find the plate's edge here. Tap its middle again, or size the circle to match it.";
-  videoInfo();
+  readout();
   redrawOverlay();
 });
 $("plateSize").addEventListener("input", () => { if (S.plate) { S.plate.r = (S.r0 * +$("plateSize").value) / 100; redrawOverlay(); } });
-$("btnEnd").addEventListener("click", () => {
-  if (video.currentTime <= S.start + 0.5) { $("markInstr").textContent = "The end has to be after the frame where you marked the plate."; return; }
-  S.end = video.currentTime;
-  videoInfo();
-});
 
 /* ------------------------------------------------------------------ tracking */
 async function run() {
@@ -364,7 +453,7 @@ function redrawOverlay(t = video.currentTime) {
     Ov.draw(overlay, { W: S.W, H: S.H, plate: { x: R.xs[i], y: R.ys[i], r: R.rs[i] }, trail, pose: s.pose, side: R.side });
     hud(i);
   } else if (S.mode === "mark") {
-    Ov.draw(overlay, { W: S.W, H: S.H, plate: S.plate });
+    Ov.draw(overlay, { W: S.W, H: S.H, plate: onStart(t) ? S.plate : null }); // the mark belongs to the start frame
   }
 }
 
@@ -437,7 +526,7 @@ $("repsChart").addEventListener("pointerdown", (e) => {
   const c = S.geoReps.cols.find((k) => x >= k.x0 && x < k.x1);
   if (c) setCursor(c.rep.begin, true);
 });
-$("btnAgain").addEventListener("click", () => { stopPlayback(); setMode("mark"); seekTo(S.start); });
+$("btnAgain").addEventListener("click", () => { stopPlayback(); setMode("mark"); TL.setRange(S.start, endT()); seekTo(S.start); });
 for (const id of ["btnNew", "btnNew2"]) $(id).addEventListener("click", () => { stopPlayback(); setMode("start"); });
 
 function download(blob, name) {
@@ -558,6 +647,10 @@ $("btnInstall").addEventListener("click", async () => {
   $("btnInstall").hidden = true;
 });
 $("shareHint").hidden = !standalone;
+// an iPhone never offers Install: say how to add it to the home screen instead
+const iOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+$("installHint").hidden = !iOS || standalone || navigator.standalone === true;
+initShare({ dialog: $("shareDlg"), open: $("btnShareApp"), qr: $("shareQr"), link: $("shareLink"), note: $("shareNote"), send: $("btnShareSend"), copy: $("btnShareCopy"), close: $("btnShareClose") });
 
 /** a video shared to the app (manifest share_target): the service worker keeps it, the app opens it */
 async function takeShared() {

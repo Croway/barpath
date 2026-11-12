@@ -1,8 +1,10 @@
 // The same flow in Chrome on the phone, over ONE tab's DevTools socket (never attaches to the whole browser).
 // Needs: adb reverse tcp:8765 tcp:8765, the app open at http://localhost:8765 on the phone, and
 //   adb forward tcp:9333 localabstract:chrome_devtools_remote
-//   node test/phone.mjs http://localhost:9333 http://localhost:8765 <video url on the app server | shared> <at s> <x,y> <out dir> [pose]
-// "file:<local path>": attach to the installed app and hand it the video over DevTools (no server needed).
+//   node test/phone.mjs http://localhost:9333 http://localhost:8765 <video url on the app server | shared> <at s[-end s]> <x,y> <out dir> [pose]
+// <at>: where to drag the timeline's start handle (and, with -end, its end handle), with real touches.
+// "file:<local path>": hand the video over DevTools (no server needed): to the installed app's window when it's
+// open (an offline test), otherwise to the tab at <prefix> (e.g. the published app in Chrome).
 // "shared": the video was shared to the installed app (Android share sheet / am start SEND); attach to the
 // installed app's window (display-mode: standalone) and use the video it opened.
 import { writeFileSync } from "node:fs";
@@ -27,6 +29,7 @@ for (const t of targets) {
   if (v?.result?.result?.value) { ws = sock; break; }
   sock.close();
 }
+if (!ws && inject) ws = await open(targets[0]).catch(() => null);
 if (!ws) throw new Error(shared ? "the installed app's window isn't open" : "no reachable tab");
 let id = 0;
 const pending = new Map();
@@ -58,9 +61,25 @@ if (!shared) await ev(`(async () => { const b = await (await fetch(${JSON.string
   const dt = new DataTransfer(); dt.items.add(f); const i = document.getElementById("fileInput"); i.files = dt.files; i.dispatchEvent(new Event("change")); return true; })()`);
 await until(`/fps/.test(document.getElementById("videoInfo").textContent)`, 30000);
 console.log("video:", await ev(`document.getElementById("videoInfo").textContent`));
-await ev(`(() => { const s = document.getElementById("scrub"), v = document.getElementById("video"); s.value = String(Math.round((${+at} / v.duration) * 10000)); s.dispatchEvent(new Event("input")); return true; })()`);
-await until(`Math.abs(document.getElementById("video").currentTime - ${+at}) < 0.05 && !document.getElementById("video").seeking`, 10000);
+// choose the part with a finger on the timeline's handles: end first (letting go shows the start again), then start
+const [atS, endS] = at.split("-").map(Number);
+async function dragHandle(which, t) {
+  const g = await ev(`(() => { const tl = document.getElementById("timeline").getBoundingClientRect(), h = document.querySelector(".timeline .handle.${which}").getBoundingClientRect();
+    return { left: tl.left, width: tl.width, hx: h.left + h.width / 2, hy: h.top + h.height / 2, hw: h.width, d: document.getElementById("video").duration }; })()`);
+  const x = g.left + g.hw + (t / g.d) * (g.width - 2 * g.hw) + (which === "in" ? -g.hw / 2 : g.hw / 2);
+  await send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: g.hx, y: g.hy }] });
+  for (let i = 1; i <= 16; i++) { await send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: g.hx + ((x - g.hx) * i) / 16, y: g.hy }] }); await sleep(30); }
+  await send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+}
+await ev(`document.getElementById("timeline").scrollIntoView({ block: "center" }), true`);
+await sleep(300);
+if (endS) await dragHandle("out", endS);
+await dragHandle("in", atS);
+await until(`Math.abs(document.getElementById("video").currentTime - window.__barpath.start) < 0.02 && !document.getElementById("video").seeking`, 10000);
+console.log("part:", await ev(`document.getElementById("timeRead").textContent`), "| start", await ev(`window.__barpath.start.toFixed(3)`), "end", await ev(`String(window.__barpath.end?.toFixed(3) ?? "video end")`));
+await ev(`window.scrollTo(0, 0), true`);
 await sleep(400);
+await shot("p01b-part");
 
 // tap the plate with a real touch
 const [tx, ty] = tap.split(",").map(Number);
@@ -78,7 +97,7 @@ await shot("p03-running");
 await until(`!document.getElementById("results").hidden || /stopped|lost|never|No lift|short/.test(document.getElementById("markInstr").textContent)`, 300000, 500);
 const out = await ev(`(() => { const S = window.__barpath, R = S.R; if (!R) return { error: document.getElementById("markInstr").textContent };
   return { title: R.title, sub: document.getElementById("resSub").textContent, vmax: +R.vmax.toFixed(3), frames: S.samples.length, lost: S.samples.filter((s) => !s.ok).length,
-    run: S.runStats, stages: R.stages.map((s) => s.name + " " + s.dur.toFixed(2)), checks: R.checks.map((c) => c.title + ":" + c.status), notes: R.notes,
+    part: [S.samples[0].t, S.samples[S.samples.length - 1].t].map((t) => +t.toFixed(3)), run: S.runStats, stages: R.stages.map((s) => s.name + " " + s.dur.toFixed(2)), checks: R.checks.map((c) => c.title + ":" + c.status), notes: R.notes,
     tiles: [...document.querySelectorAll(".tile")].map((t) => t.innerText.replace(/\\n/g, " ")) }; })()`);
 console.log(`results after ${((Date.now() - t0) / 1000).toFixed(1)} s:`, JSON.stringify(out, null, 1));
 await ev(`window.scrollTo(0, 0), true`);

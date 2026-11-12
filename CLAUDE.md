@@ -7,21 +7,23 @@ Guidance for Claude Code in this repository.
 Bar Path: weightlifting bar-path analysis from one side-on phone video, as an installable PWA. Single target
 device: Galaxy S23, Chrome on Android. Plain ES modules, no build step, no runtime dependencies besides the
 bundled MediaPipe in `vendor/` (fetched by `tools/fetch-vendor.sh`, gitignored). Everything runs on the device;
-nothing is uploaded.
+nothing is uploaded. Published at https://croway.github.io/barpath/ by `.github/workflows/pages.yml` on every
+push to `main` (public repo); that address is also the `canonical` link Share app hands out from a dev server.
 
 ## Commands
 
 ```bash
 npm run vendor && npm run serve            # dev server on :8765
-npm test                                   # snatch on ideal data + squat/deadlift/bench/press on a synthetic lifter (must pass)
+npm test                                   # snatch on ideal data + squat/deadlift/bench/press on a synthetic lifter + QR read-back (must pass)
 node test/synth.mjs /tmp/s.mp4 && node test/track.test.mjs /tmp/s.mp4 && node test/analysis.test.mjs /tmp/s.mp4
-node test/e2e.mjs . /tmp/s.mp4 /tmp/s.truth.json /tmp/out           # headless Chrome at S23 size
+node test/e2e.mjs . /tmp/s.mp4 /tmp/s.truth.json /tmp/out --at 0.4 --end 4   # headless Chrome at S23 size: drags the handles, reads the share QR
 tools/phone.sh <adb device>                # serve to the phone as http://localhost:8765 and open it
 npm run icons                              # re-render PNG icons from icons/*.svg
 ```
 
 ## Architecture
 
+`trim.js` (timeline under the video) chooses the part to analyse: `S.start`..`S.end` (null = video end) →
 `video.js` hands frames over in order with true media timestamps (`requestVideoFrameCallback`; playback slows
 itself when processing falls behind) → `plate.js` crops a region around the predicted plate, scaled so the plate
 is 36 px in radius, and finds it → `pose.js` adds 33 landmarks per frame → `analysis.js` turns samples into the
@@ -52,10 +54,13 @@ press by the bar's biggest trip from rest, not its first move (unracking lifts t
   the way up), it's where the bar was slowest. Standing = the bar stops rising for good. These windows keep a bar
   dropped after the lift out of the results.
 - Coordinates at the `plate.js` boundary are canvas coordinates (pixel i spans i..i+1).
+- **The plate mark belongs to the start frame** (tracking only runs forward). The circle is drawn only on that
+  frame; letting go of the end handle shows the start frame again; a tap on the plate near the end is refused;
+  moving the start re-finds the plate near the old mark (kept as is, with a warning, if the rim isn't found).
 
 ## Conventions
 - Colours only via the CSS tokens in `css/app.css` (validated categorical stage colours, sequential speed ramp,
-  status colours with icon + label). Dark mode has its own steps.
+  status colours with icon + label). Dark mode has its own steps; QR codes stay dark on light in both.
 - Text into the DOM via `textContent`, never `innerHTML` with data.
 - New app files must be added to `SHELL_FILES` in `sw.js`; bump `SHELL` when caching behaviour changes.
 - Every analysis change keeps `npm test` and the synthetic tracked test passing; check a real clip end to end.
