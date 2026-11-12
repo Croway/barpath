@@ -59,7 +59,7 @@ await page.screenshot({ path: `${outDir}/01-start.png` });
 
 const t0 = Date.now();
 if (camera) {
-  await page.tap("#btnRecord");
+  await page.tap("#btnCamLevel");
   await page.waitForSelector("#camera:not([hidden])");
   await page.waitForFunction(() => document.getElementById("camVideo").videoWidth > 0, null, { timeout: 15000 });
   await page.waitForTimeout(600);
@@ -167,6 +167,8 @@ if (!qr || qr.data !== img.canonical) throw new Error(`the QR code should carry 
 await page.tap("#btnShareClose");
 
 // the gallery: that analysis was kept. Analyse another part of the same video, then open one and compare both.
+// (camera mode has no file to open again: it stops at the share dialog)
+if (!camera) {
 page.on("dialog", (d) => d.accept());
 await page.waitForFunction(() => /Saved in the gallery/.test(document.getElementById("resSaved").textContent), null, { timeout: 20000 });
 // the load: power appears, and the saved lift keeps it
@@ -251,6 +253,7 @@ await (await page.$("#galList .lift:first-child .pick input")).check();
 await page.tap("#btnGalDelete");
 await page.waitForFunction(() => document.querySelectorAll("#galList .lift").length === 1, null, { timeout: 10000 });
 console.log("after a reload and deleting one:", await page.textContent("#galSummary"));
+}
 console.log(errors.length ? "PAGE ERRORS:\n" + errors.join("\n") : "no page errors");
 await browser.close();
 server.close();

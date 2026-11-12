@@ -51,7 +51,7 @@ if (!shared) {
 await until(`!!document.getElementById("fileInput") && !!window.__barpath`);
 console.log("app:", await ev(`(async () => JSON.stringify({ standalone: matchMedia("(display-mode: standalone)").matches, controlledBySW: !!navigator.serviceWorker.controller, server: await fetch("index.html", { method: "HEAD", cache: "no-store" }).then(() => "reachable", () => "unreachable (running from the app cache)") }))()`));
 console.log("screen:", await ev(`JSON.stringify({ w: innerWidth, h: innerHeight, dpr: devicePixelRatio, secure: isSecureContext, ua: navigator.userAgent.slice(0, 60) })`));
-console.log("record button:", await ev(`document.getElementById("recordHint").textContent || "in-app recording available"`));
+console.log("record:", await ev(`"camera app" + (document.getElementById("btnCamLevel").hidden ? "" : " + in-app camera (30 fps)")`));
 await shot("p01-start");
 
 // a picked file, as the file chooser would deliver it (or, when shared, the one the app already opened)

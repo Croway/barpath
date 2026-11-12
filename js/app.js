@@ -708,10 +708,13 @@ $("btnDelete").addEventListener("click", async () => {
 
 /* ------------------------------------------------------------------ getting a video */
 $("fileInput").addEventListener("change", (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) openVideo(f, f.name.replace(/\.\w+$/, ""), false); });
-$("captureInput").addEventListener("change", (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) openVideo(f, stamp(), false); });
+$("captureInput").addEventListener("change", (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) openVideo(f, f.name ? f.name.replace(/\.\w+$/, "") : stamp(), false); });
 const stamp = () => { const d = new Date(), p = (n) => String(n).padStart(2, "0"); return `lift-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; };
 
-$("btnRecord").addEventListener("click", () => (Rec.canRecordInApp() ? openCam() : $("captureInput").click()));
+// Record hands over to the camera app: browsers get the camera at 30 fps at most (a Galaxy S23 gives web pages
+// 30, its camera app 60), and speeds need the frames. The in-app camera, with its level, stays one tap away.
+$("btnRecord").addEventListener("click", () => $("captureInput").click());
+$("btnCamLevel").addEventListener("click", () => openCam());
 async function openCam() {
   setMode("camera");
   $("camInfo").textContent = "Opening the camera…";
@@ -719,14 +722,14 @@ async function openCam() {
     S.cam = await Rec.openCamera($("camVideo"));
   } catch (e) {
     setMode("start");
-    $("recordHint").textContent = `Couldn't open the camera (${e?.message || e}). You can still record with the camera app and choose the video.`;
+    $("recordHint").textContent = `Couldn't open the camera here (${e?.message || e}). Record opens the camera app instead.`;
     return;
   }
   const cv = $("camVideo"), st = S.cam.settings;
   Ov.fitViewer($("camViewer"), cv.videoWidth || st.width || 16, cv.videoHeight || st.height || 9);
   const fps = st.frameRate ? Math.round(st.frameRate) : null;
   $("camInfo").textContent = `${cv.videoWidth}×${cv.videoHeight}${fps ? ` at ${fps} fps` : ""}.` +
-    (fps && fps < 50 ? " The browser gives 30 fps here; for 60 fps or slow motion, record with the camera app and choose the video." : " Side-on, whole lift and floor in frame.");
+    (fps && fps < 50 ? " The browser gives 30 fps here; for 60 fps, use Record (the camera app)." : " Side-on, whole lift and floor in frame.");
   let seen = false;
   S.stopLevel = Rec.watchLevel(({ roll, pitch }) => {
     seen = true;
@@ -813,7 +816,7 @@ async function takeShared() {
 }
 
 loadSettings();
-$("recordHint").textContent = Rec.canRecordInApp() ? "" : "Record opens your camera app. In-app recording, with a spirit level, needs the app served over HTTPS.";
+$("btnCamLevel").hidden = !Rec.canRecordInApp();
 setMode("start");
 galleryCount();
 takeShared();

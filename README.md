@@ -95,7 +95,9 @@ install webkit firefox` once, then `node test/engines.mjs . /tmp/s.mp4 /tmp/s.tr
 
 Built for Chrome on Android; Samsung Internet, Edge, Brave and other Chromium browsers run the same engine. On a
 Galaxy S23, Chrome and Samsung Internet give the camera to web pages at 30 fps at most (1080p, back main camera
-only; 60 and 120 fps refused): for 60 fps or slow motion, film with the camera app and choose the video. Safari's
+only; 60 and 120 fps refused), while its camera app, opened from the page, records FHD at 60 fps. So **Record**
+opens the camera app (pick FHD 60 once; it remembers), and the in-app camera with the spirit level is the 30 fps
+alternative. Slow motion: film it in the camera app, then choose the video and set Video speed. Safari's
 engine (WebKit) runs the whole flow, body tracking included; its private windows can't keep video files in the
 gallery's storage, so the gallery keeps their bytes instead. Sharing a video to the app from the Gallery works
 where Chrome installed it.

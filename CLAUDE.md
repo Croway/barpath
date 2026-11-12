@@ -62,6 +62,9 @@ press by the bar's biggest trip from rest, not its first move (unracking lifts t
 - Coordinates at the `plate.js` boundary are canvas coordinates (pixel i spans i..i+1).
 - **Power** = m(a·v) + m·g·vy with acceleration smoothed at 6 Hz on top of the 10 Hz positions. Less smoothing
   doesn't recover a sharp force peak (the position filter limits it) and inflates power under tracking noise.
+- **Record opens the camera app** (`<input capture>`), not the in-app camera: on a Galaxy S23 browsers get the
+  camera at 30 fps at most (getUserMedia refuses 60 at any size, Chrome and Samsung Internet alike), while the
+  camera app opened from the page records FHD 60. The in-app camera (spirit level) is the secondary 30 fps option.
 - **The plate mark belongs to the start frame** (tracking only runs forward). The circle is drawn only on that
   frame; letting go of the end handle shows the start frame again; a tap on the plate near the end is refused;
   moving the start re-finds the plate near the old mark (kept as is, with a warning, if the rim isn't found).
