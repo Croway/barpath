@@ -267,6 +267,9 @@
       <label>Lifter faces
         <select id="facing"><option value="0" selected>Auto</option><option value="-1">Left</option><option value="1">Right</option></select>
       </label>
+      <label>Your height (cm)
+        <input id="heightCm" type="number" inputmode="numeric" min="100" max="250" step="1" placeholder="optional">
+      </label>
       <label>Body tracking
         <select id="poseModel">
           <option value="full" selected>On (accurate)</option>
@@ -275,7 +278,7 @@
         </select>
       </label>
     </div>
-    <p class="hint">Body tracking downloads a 6–9 MB model the first time. Everything runs on this device; nothing is uploaded.</p>
+    <p class="hint">Your height puts the bar's peak height and the jerk's dip in proportion to you, as studies of lifters do. Body tracking downloads a 6–9 MB model the first time. Everything runs on this device; nothing is uploaded.</p>
   </details>
 </main>
 

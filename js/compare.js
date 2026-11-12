@@ -200,7 +200,7 @@ export class Compare {
       for (const l of this.L) { const m = row.vals[l.k]; tr.append(el("td", "v", m ? fmtMetric(m) : "–")); }
       if (two) {
         const [m1, m2] = [row.vals[0], row.vals[1]];
-        const d = m1 && m2 && m1.unit === m2.unit && Number.isFinite(m1.value) && Number.isFinite(m2.value) ? fmtMetric({ ...m2, value: m2.value - m1.value }, true) : "–";
+        const d = m1 && m2 && !m1.category && m1.unit === m2.unit && Number.isFinite(m1.value) && Number.isFinite(m2.value) ? fmtMetric({ ...m2, value: m2.value - m1.value }, true) : "–";
         tr.append(el("td", "v d", d));
       }
       t.append(tr);

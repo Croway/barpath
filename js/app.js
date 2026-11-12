@@ -34,13 +34,15 @@ function loadSettings() {
   try {
     const s = JSON.parse(localStorage.getItem("barpath.settings") || "{}");
     for (const k of KEEP) if (s[k] != null && $(k).querySelector(`option[value="${CSS.escape(String(s[k]))}"]`)) $(k).value = s[k];
+    $("heightCm").value = s.heightCm ? String(s.heightCm) : "";
   } catch { /* storage unavailable: defaults */ }
 }
 function saveSettings() {
-  try { localStorage.setItem("barpath.settings", JSON.stringify(Object.fromEntries(KEEP.map((k) => [k, $(k).value])))); } catch { /* ignore */ }
+  try { localStorage.setItem("barpath.settings", JSON.stringify({ ...Object.fromEntries(KEEP.map((k) => [k, $(k).value])), heightCm: heightCm() })); } catch { /* ignore */ }
 }
 const kg = () => { const v = parseFloat($("kg").value); return v > 0 && v <= 500 ? v : null; };
-const opts = () => ({ plateMm: +$("plateMm").value, slowmo: +$("slowmo").value, facing: S.facingOverride ?? +$("facing").value, lift: $("liftSel").value, kg: kg() });
+const heightCm = () => { const v = parseFloat($("heightCm").value); return v >= 100 && v <= 250 ? v : null; };
+const opts = () => ({ plateMm: +$("plateMm").value, slowmo: +$("slowmo").value, facing: S.facingOverride ?? +$("facing").value, lift: $("liftSel").value, kg: kg(), heightCm: heightCm() });
 
 /* ------------------------------------------------------------------ screens */
 function setMode(m) {
@@ -115,6 +117,7 @@ function restore(d) {
   for (const k of ["plateMm", "slowmo", "facing"]) if (o[k] !== undefined && $(k).querySelector(`option[value="${CSS.escape(String(o[k]))}"]`)) $(k).value = String(o[k]);
   $("liftSel").value = o.lift || "auto";
   $("kg").value = o.kg ? String(o.kg) : "";
+  if (o.heightCm) $("heightCm").value = String(o.heightCm);
   Object.assign(S, { start: d.start, end: d.end ?? null, plate: { ...d.plate }, r0: d.plate.r, samples: d.samples, runStats: d.runStats || null, poseNote: d.poseNote || "", facingOverride: o.facingOverride ?? null });
   TL.setRange(S.start, endT());
   $("sizeField").hidden = false;
@@ -551,6 +554,8 @@ $("btnFlip").addEventListener("click", () => { S.facingOverride = -S.R.facing; s
 $("liftSel").addEventListener("change", () => { if (S.mode === "results") showResults(); });
 let kgTimer = 0;
 $("kg").addEventListener("input", () => { clearTimeout(kgTimer); kgTimer = setTimeout(() => { if (S.mode === "results") showResults(); }, 350); });
+let heightTimer = 0;
+$("heightCm").addEventListener("input", () => { clearTimeout(heightTimer); heightTimer = setTimeout(() => { saveSettings(); if (S.mode === "results") showResults(); }, 350); });
 $("repsChart").addEventListener("pointerdown", (e) => {
   if (!S.geoReps) return;
   const x = e.clientX - $("repsChart").getBoundingClientRect().left;
@@ -621,7 +626,7 @@ function thumbnail(R) {
   g.lineWidth = 2.5; g.strokeStyle = "#3987e5"; path(); g.stroke();
   return new Promise((res) => c.toBlob(res, "image/jpeg", 0.82));
 }
-const liftOpts = () => ({ plateMm: +$("plateMm").value, slowmo: +$("slowmo").value, facing: +$("facing").value, facingOverride: S.facingOverride, lift: $("liftSel").value, kg: kg() });
+const liftOpts = () => ({ plateMm: +$("plateMm").value, slowmo: +$("slowmo").value, facing: +$("facing").value, facingOverride: S.facingOverride, lift: $("liftSel").value, kg: kg(), heightCm: heightCm() });
 /** keep this analysis: fresh = just tracked (a new lift, or a lift analysed again); otherwise its settings changed */
 async function saveLift(fresh) {
   if (!S.R || !S.samples || !Store.available() || (!fresh && !S.entryId)) return;

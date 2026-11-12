@@ -4,11 +4,21 @@
  *
  *   node test/lifts.test.mjs
  */
-import { analyse, LM } from "../js/analysis.js";
+import { analyse, filtfilt, LM } from "../js/analysis.js";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) fails++; console.log(`${cond ? "ok  " : "FAIL"} ${msg}`); };
-const near = (got, want, tol, msg) => ok(Math.abs(got - want) <= tol, `${msg}: ${got.toFixed(3)} (want ${want.toFixed(3)} ± ${tol})`);
+const near = (got, want, tol, msg) => ok(Math.abs(got - want) <= tol, `${msg}: ${got.toFixed(3)} (want ${want.toFixed(3)} ± ${+tol.toFixed(4)})`);
+/** mean concentric velocity of an exact rising path h(t), 0..T (still before and after), as a linear transducer
+ * reads it: sampled at 1000 Hz, a 4th-order zero-lag 10 Hz Butterworth (T-Force, Sánchez-Medina 2017), the mean
+ * speed while faster than 0.02 m/s (Renner 2024). A slow rep's crawling start and lockout fall outside. */
+const mcvOf = (h, T) => {
+  const fs = 1000, N = Math.round((T + 0.6) * fs);
+  const y = filtfilt(Float64Array.from({ length: N }, (_, i) => h(Math.max(0, Math.min(T, i / fs - 0.3)))), 10, fs);
+  let sum = 0, k = 0;
+  for (let i = 1; i < N - 1; i++) { const v = ((y[i + 1] - y[i - 1]) * fs) / 2; if (v > 0.02) { sum += v; k++; } }
+  return sum / k;
+};
 
 const SEG = { shin: 0.44, thigh: 0.45, trunk: 0.52, upper: 0.3, fore: 0.28, arm: 0.58 };
 const rad = (d) => (d * Math.PI) / 180;
@@ -114,17 +124,23 @@ const sq = set(squat, { reps: 5, first: 1.0, pause: 0.15, second: [0.8, 0.85, 0.
 let R = run("squat × 5, facing left", sq, { lift: "squat", from: "body", reps: 5, face: -1 });
 const rom = squat(0).bar.y - squat(1).bar.y;
 near(R.reps[0].rom, rom, 0.02, "range of motion (m)");
-// mean lifting speed is taken over the part where the bar is really moving (> 0.05 m/s), so above range / 0.8 s
-ok(R.reps[0].mean > rom / 0.8 && R.reps[0].mean < (1.3 * rom) / 0.8, `rep 1 mean lifting speed ${R.reps[0].mean.toFixed(2)} m/s, a bit above ${(rom / 0.8).toFixed(2)}`);
+// mean lifting speed = mean concentric velocity: bottom to top while the bar moves faster than 0.02 m/s, as a linear
+// transducer measures it (it used to be bounded by distance from the start and read 7-15% high)
+[0.8, 0.85, 0.95, 1.05, 1.2].forEach((up, k) => {
+  const want = mcvOf((t) => squat(1 - ease(t / up)).bar.y, up);
+  near(R.reps[k].mean, want, 0.02 * want, `rep ${k + 1} mean lifting speed (m/s)`);
+});
+near(R.reps[0].up, 0.8, 0.04, "rep 1 lifting time (s)");
 ok(R.checks.find((c) => c.title === "Bar path")?.status === "good", "bar stays over mid-foot");
 ok(R.reps[4].mean < R.reps[0].mean, "reps slow down");
-near(R.metrics.find((m) => m.label === "Velocity loss").value, 100 * (1 - 0.8 / 1.2), 6, "velocity loss (%)");
+near(R.metrics.find((m) => m.label === "Velocity loss").value, 100 * (1 - 0.8 / 1.2), 3, "velocity loss (%)");
+ok(R.checks.find((c) => c.title === "Velocity loss")?.status === "warning", "33% velocity loss: past 20%, short of 40%");
 ok(R.checks.find((c) => c.title === "Depth")?.status === "good", "depth: below parallel");
 ok(/below parallel/.test(R.title), "title says below parallel");
 // with the load: mean lifting power = (work against gravity + change in the bar's kinetic energy) / time
 {
-  const P = analyse(sq, { kg: 100 }), up = P.stages.find((s) => s.id === "up" && s.rep === 1), dur = (up.i1 - up.i0) / P.fs;
-  const work = 100 * 9.81 * (P.H[up.i1] - P.H[up.i0]) + 50 * (P.vy[up.i1] ** 2 - P.vy[up.i0] ** 2);
+  const P = analyse(sq, { kg: 100 }), { u0, u1 } = P.reps[0], dur = (u1 - u0) / P.fs;
+  const work = 100 * 9.81 * (P.H[u1] - P.H[u0]) + 50 * (P.vy[u1] ** 2 - P.vy[u0] ** 2);
   near(P.reps[0].power, work / dur, 0.05 * (work / dur), "rep 1 mean lifting power, 100 kg (W)");
   ok(P.reps[4].power < P.reps[0].power, `power drops as the reps slow (${P.reps.map((r) => Math.round(r.power)).join(", ")} W)`);
   ok(P.tiles.some((t) => t.label === "Best mean power"), "power tiles shown");
@@ -148,6 +164,7 @@ run("deadlift, bar only", noPose(dl), { lift: "deadlift", from: "bar", reps: 3 }
 const bp = set(bench, { reps: 5, first: 1.0, pause: 0.25, second: [0.7, 0.75, 0.8, 0.9, 1.0], rest: 0.4 });
 R = run("bench × 5", bp, { lift: "bench", from: "body", reps: 5, face: 1 });
 near(R.reps[0].shift, 0.1, 0.02, "touch → lockout toward the head (m)");
+[0.7, 0.75, 0.8, 0.9, 1.0].forEach((up, k) => { const want = mcvOf((t) => bench(1 - ease(t / up)).bar.y, up); near(R.reps[k].mean, want, 0.02 * want, `rep ${k + 1} mean lifting speed (m/s)`); });
 ok(R.checks.find((c) => c.title === "Bar path")?.status === "good", "J-curve");
 ok(R.checks.find((c) => c.title === "Touch point")?.status === "good", "same touch point");
 R = run("bench, bar only (looks like a squat)", noPose(bp), { lift: "squat", from: "bar" });
@@ -157,6 +174,22 @@ const op = set(press, { reps: 3, first: 0.9, pause: 0.4, second: [1.0, 1.0, 1.0]
 R = run("overhead press × 3", op, { lift: "press", from: "body", reps: 3 });
 ok(R.checks.find((c) => c.title === "Lockout")?.status === "good", "elbows locked out");
 ok(R.checks.find((c) => c.title === "Torso")?.status === "good", "torso stacked");
+{ const want = mcvOf((t) => press(ease(t / 0.9)).bar.y, 0.9); near(R.reps[0].mean, want, 0.02 * want, "rep 1 mean lifting speed (m/s)"); }
+
+/* the bar alone, smooth legs: the lockout finishes 2 cm above where the set started (the lifter stands taller than
+ * after the walk-out). Mean lifting speed still runs bottom to top, and a grinding last rep is near a 1-rep max. */
+{
+  const ups = [0.8, 1.0, 1.4, 2.4], PPM = 540, cos = (u) => (1 - Math.cos(Math.PI * Math.max(0, Math.min(1, u)))) / 2;
+  const legs = [[0.8, 1.45, 1.45]];
+  ups.forEach((u) => legs.push([1.0, legs.at(-1)[2], 0.75], [0.15, 0.75, 0.75], [u, 0.75, 1.47], [0.6, 1.47, 1.47]));
+  const S = [];
+  let t0 = 0;
+  for (const [d, h0, h1] of legs) { for (let t = 0; t < d - 1e-9; t += 1 / 60) S.push({ t: t0 + t, x: 500, y: 1500 - (h0 + (h1 - h0) * cos(t / d)) * PPM, r: 0.225 * PPM, ok: true }); t0 += d; }
+  const Q = run("squat, bar only, lockout 2 cm above the start", S, { lift: "squat", from: "bar", reps: 4 });
+  ups.forEach((u, k) => { const want = mcvOf((t) => 0.75 + 0.72 * cos(t / u), u); near(Q.reps[k].mean, want, 0.02 * want, `rep ${k + 1} mean lifting speed (m/s)`); });
+  ok(Q.notes.some((t) => /close to the limit/.test(t)), "a 0.30 m/s last squat is near a 1-rep max");
+  ok(!R.notes.some((t) => /close to the limit/.test(t)), "a 0.6 m/s press isn't");
+}
 
 console.log(fails ? `\n${fails} FAILED` : "\nALL PASS");
 process.exit(fails ? 1 : 0);

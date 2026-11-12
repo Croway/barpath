@@ -9,12 +9,12 @@ any app.
 
 | Lift | What you get |
 |---|---|
-| Snatch, clean (& jerk) | stages (first pull, transition, second pull, turnover, recovery), peak speed and height, drop, catch position, squat vs power catch; checks: off the floor, second pull loop, transition, catch |
-| Squat | reps, mean / peak lifting speed per rep, velocity loss, tempo, sticking point; checks: depth (hip crease vs knee), chest dropping out of the bottom, bar path over mid-foot |
+| Snatch, clean (& jerk) | stages (first pull, transition, second pull, turnover, catch, recovery), peak speed and height, drop, catch position, bar path type (1–4) and loop, squat vs power catch, jerk dip and drive; snatch figures shown next to published elite values; checks: off the floor, second pull loop, transition, catch |
+| Squat | reps, mean / peak lifting speed per rep (mean concentric velocity, as a linear transducer measures it), velocity loss, how near a 1-rep max the last rep was, tempo, sticking point; checks: depth (hip crease vs knee), chest dropping out of the bottom, bar path over mid-foot |
 | Deadlift | the same per rep; checks: hips shooting up, bar drifting off the legs, lockout, leaning back |
 | Bench press | the same per rep; checks: J-curve (touch → over the shoulders), touch point consistency, bounce |
 | Overhead press (push press / jerk) | the same per rep, dip depth; checks: lockout, leaning back, bar looping around the face |
-| Any, with the load entered | power and force: snatch/clean peak power, mean pull power, peak force (approx.); rep lifts mean lifting power per rep, best, peak, power lost |
+| Any, with the load entered | power into the bar and force on it: snatch/clean peak power, mean pull power, peak force (approx.); rep lifts mean lifting power per rep, best, peak, power lost |
 
 The lift is recognised on its own — from the body when it's tracked (lying down; bar at the floor, hips or
 shoulders; where the bar finishes), from the bar alone otherwise — and can be changed under **Lift**.
@@ -33,13 +33,19 @@ shoulders; where the bar finishes), from the bar alone otherwise — and can be 
    the scale — per frame, because it changes when the camera is close or tilted.
 2. **Body.** MediaPipe Pose Landmarker (bundled, runs on the GPU) gives the knee and hip angles, which way the
    lifter faces, snatch vs clean, and squat vs power catch.
-3. **Lift.** Positions are smoothed (10 Hz Butterworth, both directions) and differentiated. Snatch and clean
-   are split into first pull → transition → second pull → turnover → recovery (the first-pull/transition split
-   comes from the knees, or without the body from the dip in bar speed). Squat, deadlift, bench and press are
-   split into reps — each trip away from the rest position and back — with lowering, pause and lifting phases.
+3. **Lift.** Positions are smoothed (10 Hz Butterworth, both directions: about 8 Hz at −3 dB) and differentiated.
+   Snatch and clean are split into first pull → transition → second pull → turnover (to peak height) → catch (to
+   where the bar stops dropping) → recovery. The first pull ends at the knees' first full extension and the
+   transition at their bend back in; without the body, at the bar's first speed peak and dip, or, when the speed
+   never dips (as in most good lifters), at its furthest-back point, the transition then staying in the second
+   pull. Squat, deadlift, bench and press are split into reps — each trip away from the rest position and back —
+   with lowering, pause and lifting phases; each runs while the bar moves faster than 0.02 m/s, so the mean lifting
+   speed is the mean concentric velocity of velocity-based training.
 4. **Results.** Replay with the bar trail coloured by speed, the side-view bar path, bar speed over time,
    stage timing, checks and every measurement; CSV/JSON export. Enter the **load** (kg) for power: the force on
-   the bar is m(g + a) and its power F·v, with the acceleration smoothed at 6 Hz.
+   the bar is m(g + a), with the acceleration smoothed at 6 Hz, and its power the rate of change of the bar's
+   energy (lifted + moving), also at 6 Hz. Add **your height** under Settings to see the peak bar height and the
+   jerk's dip as a share of it.
 5. **Gallery.** Every analysis is kept on the phone (IndexedDB: the video, the tracked frames, the settings) and
    reopens instantly, without tracking again. Tick two to four lifts to **compare** them: videos side by side,
    lined up at lift-off, playing and scrubbing together; bar paths and speeds overlaid, one colour per lift;
@@ -126,7 +132,11 @@ where Chrome installed it.
 
 One camera sees front/back and up/down only: no sideways drift, bar tilt, or left/right differences. Heights
 for snatch, clean and deadlift are from the floor (the bar starts there); for the others they're from the start.
-Checks use starting thresholds meant to be tuned with a coach. Peak force reads low on very short spikes (the
+Checks use starting thresholds meant to be tuned with a coach; the snatch's elite figures (bar path, drop,
+catch position, knee angles) come from studies of world-championship lifters (Cunanan 2020, Nagao 2019,
+Harbili 2012) and are cited in `js/analysis.js`. Body angles come from one camera's 2D landmarks and are
+approximate; changes within a rep (chest drop, hips first) hold up better than absolute angles. Power is power
+into the bar only, not the lifter's own (which includes moving the body). Peak force reads low on very short spikes (the
 smoothing that calms tracking noise softens them); mean and peak power hold up better. Without body tracking a bench looks like a squat
 to the bar alone, and a strict press like a deadlift: pick the lift. Squat, deadlift, bench and press have so
 far been tested on a synthetic lifter, not on real clips.

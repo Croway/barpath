@@ -39,7 +39,9 @@ so the phone's Back works.
 `analyse()` = `prepare()` (grid, smoothing, per-frame scale, pose access) → `recognise()` → `olympic()` (snatch,
 clean, jerk: one pull) or `reps()` (squat, bench go down first; deadlift, press go up first). Both return the same
 shape for the UI: `title, tiles, marks, span, t0i, axis, stages, metrics, checks, notes` (+ `reps`, `repOf` for
-rep lifts). Rep lifts use stage slots 1–3 only (validated against each other in any order).
+rep lifts). Olympic lifts use slots 1–6 in order (first pull, transition, second pull, turnover, catch,
+recovery: the palette's first six, validated as adjacent pairs in that order); rep lifts use slots 1–3 only
+(validated against each other in any order). Elite figures and thresholds cite their studies in comments.
 
 Recognition: lying = flat torso AND bar above the shoulders (a deadlift set-up is flat too); a pull is told by
 where the bar FINISHES on the body (hips = deadlift, shoulders/overhead = clean/snatch), not by speed; squat vs
@@ -60,8 +62,19 @@ press by the bar's biggest trip from rest, not its first move (unracking lifts t
   the way up), it's where the bar was slowest. Standing = the bar stops rising for good. These windows keep a bar
   dropped after the lift out of the results.
 - Coordinates at the `plate.js` boundary are canvas coordinates (pixel i spans i..i+1).
-- **Power** = m(a·v) + m·g·vy with acceleration smoothed at 6 Hz on top of the 10 Hz positions. Less smoothing
-  doesn't recover a sharp force peak (the position filter limits it) and inflates power under tracking noise.
+- **Power** = d/dt of the bar's energy (m·g·h + ½m·v²) smoothed at 6 Hz; force = m(g + a) with acceleration
+  smoothed at 6 Hz on top of the 10 Hz positions. Less smoothing doesn't recover a sharp force peak (the position
+  filter limits it) and inflates power under tracking noise. Multiplying the 6 Hz acceleration by the sharper 10 Hz
+  speed instead read peak power 3–5% high.
+- **Mean lifting speed** (rep lifts) runs while the bar rises faster than 0.02 m/s, its ends interpolated between
+  frames: the mean concentric velocity of linear transducers and published load-velocity data (Renner 2024).
+  Bounding the legs by distance from the rest position dropped the slow start and lockout and read 7–15% high. The
+  test reference is the exact path processed like a transducer (1 kHz, 10 Hz zero-lag filter, 0.02 m/s).
+- **Per-frame scale beats a pinhole back-projection** about the image centre: with the phone tilted up to 20°, the
+  plate's radius shrinks with the same vertical foreshortening as the movement, so heights and speeds stay right
+  (back-projection read 9% low); it was only ~1 cm better sideways.
+- **First pull without the body**: a speed dip if there is one, else the bar's furthest-back point (Nagao 2019).
+  Most good lifters' bars never slow in the transition, so a dip-only rule left one undivided "Pull".
 - **Record opens the camera app** (`<input capture>`), not the in-app camera: on a Galaxy S23 browsers get the
   camera at 30 fps at most (getUserMedia refuses 60 at any size, Chrome and Samsung Internet alike), while the
   camera app opened from the page records FHD 60. The in-app camera (spirit level) is the secondary 30 fps option.

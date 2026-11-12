@@ -1,12 +1,12 @@
-/* Tokens: chart chrome, categorical stage colours (slots 1-5), the sequential speed ramp and the status
+/* Tokens: chart chrome, categorical stage colours (slots 1-6), the sequential speed ramp and the status
  * colours come from a validated palette; dark mode is its own selected steps, not a flip. */
 :root {
   color-scheme: light;
   --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
   --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11, 11, 11, 0.1); --wash: rgba(11, 11, 11, 0.04);
   --accent: #2a78d6; --on-accent: #ffffff;
-  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
-  --s1-on: #fff; --s2-on: #fff; --s3-on: #fff; --s4-on: #0b0b0b; --s5-on: #fff;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300;
+  --s1-on: #fff; --s2-on: #fff; --s3-on: #fff; --s4-on: #0b0b0b; --s5-on: #fff; --s6-on: #fff;
   --ramp: #86b6ef, #5598e7, #2a78d6, #1c5cab, #104281;
   --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
   /* timeline over the filmstrip, and QR codes: the same in both themes (scanners want dark on light) */
@@ -20,7 +20,7 @@
     --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
     --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.1); --wash: rgba(255, 255, 255, 0.05);
     --accent: #3987e5;
-    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300;
     --s4-on: #fff;
     --ramp: #184f95, #256abf, #3987e5, #6da7ec, #b7d3f6;
   }
@@ -30,7 +30,7 @@
   --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
   --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.1); --wash: rgba(255, 255, 255, 0.05);
   --accent: #3987e5;
-  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300;
   --s4-on: #fff;
   --ramp: #184f95, #256abf, #3987e5, #6da7ec, #b7d3f6;
 }
@@ -87,6 +87,10 @@ input[type="range"] { width: 100%; accent-color: var(--accent); min-height: 32px
 .settings summary { cursor: pointer; font-weight: 600; min-height: 28px; }
 .settings .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 10px; }
 .settings label { display: grid; gap: 4px; font-size: 13px; color: var(--ink-2); }
+.settings input[type="number"] {
+  min-height: 44px; padding: 0 10px; font: inherit; font-size: 15px; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 10px; font-variant-numeric: tabular-nums; width: 100%;
+}
 
 /* the video and its overlay */
 .viewer {
