@@ -11,7 +11,7 @@ const SHELL_FILES = [
   "./", "index.html", "manifest.webmanifest", "css/app.css",
   "js/app.js", "js/analysis.js", "js/charts.js", "js/overlay.js", "js/plate.js", "js/pose.js", "js/recorder.js", "js/video.js",
   "js/trim.js", "js/share.js", "js/qr.js", "js/store.js", "js/gallery.js", "js/compare.js",
-  "icons/icon.svg", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png",
+  "icons/icon.svg", "icons/favicon.svg", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png",
 ];
 const VENDOR_FILES = [
   "vendor/mediapipe/vision_bundle.mjs", "vendor/mediapipe/wasm/vision_wasm_internal.js",

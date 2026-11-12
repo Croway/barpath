@@ -12,18 +12,18 @@
     </filter>
   </defs>
   <rect width="512" height="512" fill="url(#bg)"/>
-  <g transform="translate(256 256) scale(0.7) translate(-270 -276)">
+  <g transform="translate(256 256) scale(0.7) translate(-256 -247)">
   <g fill="none" stroke="#f2605a" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)">
-    <path d="M164 420 H308" stroke-width="22"/>
-    <path d="M222 384 C198 338 200 302 228 278 C254 255 280 246 276 228" stroke-width="20" stroke-dasharray="0 30"/>
-    <circle cx="262" cy="152" r="70" stroke-width="22"/>
-    <circle cx="262" cy="152" r="38" stroke-width="9" opacity="0.8"/>
-    <path d="M360 118 Q378 152 360 186" stroke-width="14" opacity="0.7"/>
-    <path d="M386 132 Q397 152 386 172" stroke-width="10" opacity="0.4"/>
+    <circle cx="256" cy="262" r="156" stroke-width="7" opacity="0.55"/>
+    <rect x="125" y="156" width="262" height="262" stroke-width="7" opacity="0.55"/>
+    <path d="M129 233 L226 227 M286 227 L383 233 M256 290 L240 416 M256 290 L272 416" stroke-width="10" opacity="0.5"/>
+    <path d="M104 116 H408" stroke-width="22"/>
+    <path d="M125 80 V152 M147 80 V152 M365 80 V152 M387 80 V152" stroke-width="15"/>
+    <path d="M201.0 116.0 L226.0 227.0 L286.0 227.0 L311.0 116.0" stroke-width="15"/>
+    <path d="M256.0 213.0 L256 290 M256.0 290.0 L187.6 402.2 M256.0 290.0 L324.4 402.2" stroke-width="15"/>
   </g>
   <g fill="#f2605a" filter="url(#glow)">
-    <circle cx="262" cy="152" r="14"/>
-    <circle cx="222" cy="398" r="14"/>
+    <circle cx="256" cy="186" r="21"/>
   </g>
   </g>
 </svg>
