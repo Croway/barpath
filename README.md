@@ -88,6 +88,17 @@ node test/e2e.mjs . real.mp4 - /tmp/out --at 7 --end 11.5 --tap 760,1460      # 
 ```
 
 `test/phone.mjs` runs the same flow in Chrome on the phone (the handles dragged with real touches).
+`test/engines.mjs` runs the main flow in Chrome, WebKit (Safari's engine) and Firefox: `npx playwright-core
+install webkit firefox` once, then `node test/engines.mjs . /tmp/s.mp4 /tmp/s.truth.json`.
+
+## Browsers and cameras
+
+Built for Chrome on Android; Samsung Internet, Edge, Brave and other Chromium browsers run the same engine. On a
+Galaxy S23, Chrome and Samsung Internet give the camera to web pages at 30 fps at most (1080p, back main camera
+only; 60 and 120 fps refused): for 60 fps or slow motion, film with the camera app and choose the video. Safari's
+engine (WebKit) runs the whole flow, body tracking included; its private windows can't keep video files in the
+gallery's storage, so the gallery keeps their bytes instead. Sharing a video to the app from the Gallery works
+where Chrome installed it.
 
 ## Layout
 

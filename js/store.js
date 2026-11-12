@@ -22,25 +22,55 @@ async function tx(names, mode, fn) {
     const t = d.transaction(names, mode);
     const out = fn(Object.fromEntries(names.map((n) => [n, t.objectStore(n)])));
     t.oncomplete = () => resolve(out instanceof IDBRequest ? out.result : Array.isArray(out) ? out.map((q) => q?.result) : out);
-    t.onerror = () => reject(t.error);
-    t.onabort = () => reject(t.error || new Error("Storage full or unavailable"));
+    const fail = () => reject(t.error || new Error("storage is full or not available here"));
+    t.onerror = fail;
+    t.onabort = fail;
   });
 }
 
 export const available = () => typeof indexedDB !== "undefined";
 export const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
+/* Files (the video, the thumbnail) are stored as Blobs. WebKit's private windows (Safari private browsing) can't:
+ * a transaction holding a Blob there never completes nor fails, and stalls everything queued behind it. So it's
+ * tried once in a database of its own, and where it doesn't work files are stored as their bytes instead. */
+let blobsOk = null;
+function canStoreBlobs() {
+  blobsOk ??= new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), 2000);
+    const done = (v) => { clearTimeout(timer); resolve(v); };
+    try {
+      const r = indexedDB.open(`${NAME}-probe`, 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("s");
+      r.onerror = () => done(false);
+      r.onsuccess = () => {
+        try {
+          const t = r.result.transaction("s", "readwrite");
+          t.objectStore("s").put(new Blob(["x"], { type: "text/plain" }), "k");
+          t.oncomplete = () => { r.result.close(); done(true); };
+          t.onabort = () => done(false);
+        } catch { done(false); }
+      };
+    } catch { done(false); }
+  });
+  return blobsOk;
+}
+const pack = async (b) => (b instanceof Blob ? { bytes: await b.arrayBuffer(), type: b.type } : b);
+const unpack = (v) => (v && v.bytes instanceof ArrayBuffer ? new Blob([v.bytes], { type: v.type }) : v);
+
 /** every lift's card, the most recently filmed first */
 export async function list() {
   const all = await tx(["lifts"], "readonly", (s) => s.lifts.getAll());
-  return all.sort((a, b) => b.filmed - a.filmed || b.saved - a.saved);
+  return all.map((c) => ({ ...c, thumb: unpack(c.thumb) })).sort((a, b) => b.filmed - a.filmed || b.saved - a.saved);
 }
 /** save a lift: card and data always, the video only when given (it never changes for an id) */
-export function put(card, data, video) {
-  return tx(video ? STORES : ["lifts", "data"], "readwrite", (s) => {
-    s.lifts.put(card);
-    s.data.put({ ...data, id: card.id });
-    if (video) s.videos.put({ id: card.id, blob: video });
+export async function put(card, data, video) {
+  const blobs = await canStoreBlobs();
+  const c = blobs ? card : { ...card, thumb: await pack(card.thumb) }, v = video && (blobs ? video : await pack(video));
+  return tx(v ? STORES : ["lifts", "data"], "readwrite", (s) => {
+    s.lifts.put(c);
+    s.data.put({ ...data, id: c.id });
+    if (v) s.videos.put({ id: c.id, blob: v });
   });
 }
 /** merge changes into a saved lift's card and data (the lift picked, plate size, …) */
@@ -53,7 +83,7 @@ export function update(id, card, data) {
 }
 export async function get(id) {
   const [card, data, video] = await tx(STORES, "readonly", (s) => [s.lifts.get(id), s.data.get(id), s.videos.get(id)]);
-  return card && data && video ? { card, data, video: video.blob } : null;
+  return card && data && video ? { card: { ...card, thumb: unpack(card.thumb) }, data, video: unpack(video.blob) } : null;
 }
 export function remove(ids) {
   return tx(STORES, "readwrite", (s) => { for (const id of [].concat(ids)) for (const n of STORES) s[n].delete(id); });
