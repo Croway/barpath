@@ -31,8 +31,8 @@ export default {
   // start screen
   "start.title": "Filma l'alzata di lato",
   "start.howto": "Come filmarla",
-  "start.tip1": "**Obiettivo all'altezza delle anche (~1 m), telefono in bolla.** Non a terra inclinato verso l'alto.",
-  "start.tip2": "**A 4–5 m con zoom 2×** (in verticale), l'alzata occupa quasi tutta l'inquadratura, pavimento compreso.",
+  "start.tip1": "**Obiettivo tra anche e petto (da 1 a 1,3 m), telefono in bolla.** All'altezza del petto per le alzate sopra la testa (strappo, slancio, push press). Non a terra inclinato verso l'alto.",
+  "start.tip2": "**A 4–5 m con zoom 2×** (in verticale), tutta l'alzata nell'inquadratura con un po' di margine, pavimento compreso. Se il bilanciere sopra la testa arriva vicino al bordo, allontanati: non inclinare il telefono.",
   "start.tip3": "**In asse col bilanciere:** il disco lontano si nasconde dietro quello vicino, che appare rotondo.",
   "start.tip4": "**1080p, 60 fps.** Va bene anche il rallentatore; imposta di quanto è rallentato.",
   "start.lifts": "Strappo, girata, squat, stacco da terra, panca piana e lento avanti vengono riconosciuti da soli.",

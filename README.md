@@ -55,8 +55,13 @@ shoulders; where the bar finishes), from the bar alone otherwise — and can be 
 
 ## Filming
 
-- Lens at hip height (~1 m), phone level — not on the floor tilted up.
-- 4–5 m away with 2× zoom (portrait); the lift fills most of the frame, floor included.
+- Lens at hip to chest height (1–1.3 m), phone level — chest height for overhead lifts (snatch, jerk, push press);
+  not on the floor tilted up.
+- 4–5 m away with 2× zoom (portrait); the whole lift in frame with a margin, floor included. If the bar overhead nears
+  the top, step back rather than tilting the phone. At 2× (portrait, about 40° tall) a level lens at 1 m sees up to
+  about 1 m + 0.37 × the distance: 2.1 m at 3 m, 2.5 m at 4 m, 2.85 m at 5 m, and a snatch or jerk finishes with the
+  plate's top around 2.3–2.5 m. Neither the height nor the distance enters the analysis (the scale comes from the
+  plate, frame by frame): they only decide what fits in the frame and how big the plate is on screen.
 - Square to the bar: the far plate hides behind the near one, which looks round.
 - 1080p at 60 fps. Slow motion works too (set *Video speed* to how much it's slowed).
 

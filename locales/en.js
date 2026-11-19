@@ -29,8 +29,8 @@ export default {
   // start screen
   "start.title": "Film the lift from the side",
   "start.howto": "How to film it",
-  "start.tip1": "**Lens at hip height (~1 m), phone level.** Not on the floor tilted up.",
-  "start.tip2": "**4–5 m away with 2× zoom** (portrait), the lift filling most of the frame, floor included.",
+  "start.tip1": "**Lens at hip to chest height (1–1.3 m), phone level.** Chest height for overhead lifts (snatch, jerk, push press). Not on the floor tilted up.",
+  "start.tip2": "**4–5 m away with 2× zoom** (portrait), the whole lift in frame with a margin, floor included. If the bar overhead nears the top, step back: don't tilt the phone.",
   "start.tip3": "**Square to the bar:** the far plate hides behind the near one, which looks round.",
   "start.tip4": "**1080p, 60 fps.** Slow motion works too; set how much it's slowed.",
   "start.lifts": "Snatch, clean, squat, deadlift, bench press and overhead press are recognised on their own.",
