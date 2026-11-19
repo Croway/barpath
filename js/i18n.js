@@ -13,8 +13,8 @@
  * Shared with Kip Lab: identical. */
 import en from "../locales/en.js";
 
-/** the languages there's a catalog for; add one as `it: "Italiano"` once locales/it.js exists */
-export const LANGS = { en: "English" };
+/** the languages there's a catalog for (locales/<code>.js), each named in its own language */
+export const LANGS = { en: "English", it: "Italiano" };
 
 let lang = "en", cat = en, plural = new Intl.PluralRules("en"), dec = ".";
 

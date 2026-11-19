@@ -311,7 +311,7 @@ export default {
   "error.neverLeavesFloor": "The bar never leaves the floor in this clip. Start where the bar is on the floor and run past the lift.",
   "error.neverFast": "No lift found: the bar never moves fast. If the video is slow motion, set the slow-motion factor.",
   "error.repsNeverMove": "The bar never moves in this clip. Start just before the first rep and run past the last one.",
-  "error.repsTooSmall": "The bar only moves {cm} cm the way a {lift} starts. If that's not the lift, pick it under Lift.",
+  "error.repsTooSmall": "The bar only moves {cm} cm the way the {lift} starts. If that's not the lift, pick it under Lift.",
   "error.noReps": "No {lift} reps found. If that's not the lift, pick it under Lift.",
 
   // analysis.js: headline numbers
