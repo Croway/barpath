@@ -111,5 +111,7 @@ press by the bar's biggest trip from rest, not its first move (unracking lifts t
   `tr()` at a module's top level (the language is set at startup). CSV/JSON exports stay English with "." decimals.
 - Icons from the SVG sprite at the top of `index.html` (`<use href="#i-…">`), never Unicode glyphs.
 - Text into the DOM via `textContent`, never `innerHTML` with data.
-- New app files must be added to `SHELL_FILES` in `sw.js`; bump `SHELL` when caching behaviour changes.
+- New app files must be added to `SHELL_FILES` in `sw.js`; bump `SHELL` when caching behaviour changes. A new folder
+  must also be copied by the Pages workflow (`.github/workflows/pages.yml` lists what goes on the site): `locales/`
+  was left out once, and the published app ran no JS at all (the local server serves everything, so tests passed).
 - Every analysis change keeps `npm test` and the synthetic tracked test passing; check a real clip end to end.
