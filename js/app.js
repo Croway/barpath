@@ -592,9 +592,11 @@ for (const b of document.querySelectorAll("#rates button")) {
 $("btnFlip").addEventListener("click", () => { S.facingOverride = -S.R.facing; showResults(); });
 $("liftSel").addEventListener("change", () => { if (S.mode === "results") showResults(); });
 let kgTimer = 0;
-$("kg").addEventListener("input", () => { clearTimeout(kgTimer); kgTimer = setTimeout(() => { if (S.mode === "results") showResults(); }, 350); });
+const kgDone = () => { kgTimer = 0; if (S.mode === "results") showResults(); };
+$("kg").addEventListener("input", () => { clearTimeout(kgTimer); kgTimer = setTimeout(kgDone, 350); });
 let heightTimer = 0;
-$("heightCm").addEventListener("input", () => { clearTimeout(heightTimer); heightTimer = setTimeout(() => { saveSettings(); if (S.mode === "results") showResults(); }, 350); });
+const heightDone = () => { heightTimer = 0; saveSettings(); if (S.mode === "results") showResults(); };
+$("heightCm").addEventListener("input", () => { clearTimeout(heightTimer); heightTimer = setTimeout(heightDone, 350); });
 $("repsChart").addEventListener("click", (e) => { // a tap: a scroll that starts on the chart doesn't jump
   if (!S.geoReps) return;
   const x = e.clientX - $("repsChart").getBoundingClientRect().left;
@@ -688,7 +690,17 @@ async function saveLift(fresh) {
   }
 }
 let saveTimer = 0;
-const queueSave = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveLift(false), 400); };
+const queueSave = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => { saveTimer = 0; saveLift(false); }, 400); };
+/** a queued save done now, with a load or height still being typed: before something reads the saved lift back
+ * (keeping only the analysed part) */
+const flushSave = async () => {
+  if (kgTimer) { clearTimeout(kgTimer); kgDone(); }
+  if (heightTimer) { clearTimeout(heightTimer); heightDone(); }
+  if (!saveTimer) return;
+  clearTimeout(saveTimer);
+  saveTimer = 0;
+  await saveLift(false);
+};
 
 const GAL = new Gallery(
   { list: $("galList"), filters: $("galFilters"), summary: $("galSummary"), status: $("galStatus"), empty: $("galEmpty"), bar: $("galBar"), barText: $("galBarText"), compare: $("btnGalCompare"), remove: $("btnGalDelete"), trim: $("btnGalTrim") },
@@ -779,6 +791,7 @@ $("btnTrim").addEventListener("click", async () => {
   if (!confirm(ask)) return;
   $("btnTrim").disabled = true;
   try {
+    await flushSave(); // settings changed a moment ago go with it
     await Store.applyTrim(p);
     const got = await Store.get(p.card.id);
     // open it again on the shorter video (its times moved with it); no new history entry

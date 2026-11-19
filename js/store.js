@@ -106,9 +106,15 @@ export async function planTrim(id) {
   if (!got) return null;
   return { ...got, r: await trimVideo(got.video, got.data.start, got.data.end ?? null) };
 }
-/** save a planned cut: the shorter video replaces the old one, the tracked samples and the part move with it */
-export function applyTrim(p) {
-  const { card, data, r } = p, shift = (t) => (t === null || t === undefined ? t : t - r.offset);
+/** save a planned cut: the shorter video replaces the old one, the tracked samples and the part move with it. The card
+ * and data are read again here, not taken from the plan: settings changed since it was made (the load, the lift
+ * picked, …) are kept. A plan for a part that has moved since, or a video already cut, is refused. */
+export async function applyTrim(p) {
+  const { r } = p, id = p.card.id;
+  const [card, data] = await tx(["lifts", "data"], "readonly", (s) => [s.lifts.get(id), s.data.get(id)]);
+  if (!card || !data) throw new Error("not in the gallery any more");
+  if (card.trimmed || data.start !== p.data.start || (data.end ?? null) !== (p.data.end ?? null)) throw new Error("changed since: open it again");
+  const shift = (t) => (t === null || t === undefined ? t : t - r.offset);
   const moved = { ...data, start: shift(data.start), end: shift(data.end), samples: data.samples.map((s) => ({ ...s, t: s.t - r.offset })) };
   return put({ ...card, trimmed: true, bytes: r.after }, moved, r.blob);
 }

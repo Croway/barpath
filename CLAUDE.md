@@ -40,8 +40,10 @@ so the phone's Back works.
 Keeping only the analysed part (`clip.js`, shared with Kip Lab): a saved video is cut losslessly (its samples copied
 into a new MP4, nothing decoded) from the keyframe at or before `start` to `end`. `store.js` `planTrim()` cuts without
 saving (so the space it frees is shown first), `applyTrim()` replaces the video and shifts the data (samples' `t`,
-`start`, `end`) by the cut's offset, so `analyse()` gives the same results. Offered on a saved lift's results (when it
-frees 5% or more) and for any ticked lifts in the gallery; trimmed cards get `trimmed: true`.
+`start`, `end`) by the cut's offset, so `analyse()` gives the same results. `applyTrim()` reads the card and data again
+rather than taking the plan's copy (the results plan the cut when they open: a load or lift changed since was lost), and
+refuses a plan whose part has moved; the results flush a queued settings save first (`flushSave()`). Offered on a saved
+lift's results (when it frees 5% or more) and for any ticked lifts in the gallery; trimmed cards get `trimmed: true`.
 
 Text: everything the app shows comes from `locales/en.js` through `tr()` / `num()` (`i18n.js`, shared with Kip Lab);
 static HTML through `data-i18n*` attributes and `applyDom()` at startup. Another language = `locales/<lang>.js` with
