@@ -4,18 +4,23 @@
  *
  * Time here is τ, seconds from each lift's own lift-off; lift k shows grid index t0i + τ·fs, i.e. video time
  * tv0 + (t0i/fs + τ)·slow. */
-import { analyse, LIFTS, fmtMetric } from "./analysis.js";
+import { analyse, LIFTS, fmtMetric, fmtPlain } from "./analysis.js";
+import { tr, num, getLang } from "./i18n.js";
 import * as V from "./video.js";
 import * as Ov from "./overlay.js";
+import { scrub } from "./charts.js";
 
 const tok = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const FONT = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const FONT = '12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'; // --fs-xs
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
 export const MAX = 4;
+/** dates and times: in the app's language, with the phone's own conventions (24-hour clock, day before month) when
+ * the phone is set to that language too */
+export const dateLocale = () => { const nav = navigator.language || ""; return nav.toLowerCase().split("-")[0] === getLang() ? nav : getLang(); };
 export const when = (ms) => {
   const d = new Date(ms), now = new Date();
-  return d.toLocaleString(undefined, { day: "numeric", month: "short", ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}), hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString(dateLocale(), { day: "numeric", month: "short", ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}), hour: "2-digit", minute: "2-digit" });
 };
 
 export class Compare {
@@ -52,7 +57,7 @@ export class Compare {
     }).filter((l) => !l.R.error);
     const lifts = new Set(this.L.map((l) => l.R.lift));
     r.note.hidden = lifts.size < 2;
-    r.note.textContent = lifts.size < 2 ? "" : `These are different lifts (${[...lifts].map((x) => LIFTS[x]).join(", ")}): they're lined up at the start of the lift, and heights may be measured differently.`;
+    r.note.textContent = lifts.size < 2 ? "" : tr("compare.differentLifts", { lifts: [...lifts].map((x) => LIFTS[x]).join(", ") });
 
     // range of τ covered by any lift
     this.lo = Math.min(...this.L.map(({ R }) => (R.span[0] - R.t0i) / R.fs));
@@ -65,17 +70,19 @@ export class Compare {
     for (const l of this.L) {
       const li = el("li");
       li.style.setProperty("--c", `var(${l.color})`);
+      li.style.setProperty("--c-on", `var(${l.color}-on)`);
       const sw = el("span", "sw", String(l.k + 1));
-      li.append(sw, el("span", "ttl", `${l.R.title}${l.R.kg ? ` · ${l.R.kg} kg` : ""}`), el("span", "when", when(l.card.filmed)));
+      li.append(sw, el("span", "ttl", `${l.R.title}${l.R.kg ? ` · ${fmtPlain(l.R.kg)} kg` : ""}`), el("span", "when", when(l.card.filmed)));
       r.legend.append(li);
 
       const tile = el("figure", "cmp-tile");
       tile.style.setProperty("--c", `var(${l.color})`);
+      tile.style.setProperty("--c-on", `var(${l.color}-on)`);
       const view = el("div", "viewer");
       const video = el("video"), canvas = el("canvas");
       video.muted = true; video.playsInline = true;
       view.append(video, canvas, el("span", "tag", String(l.k + 1)));
-      tile.append(view, el("figcaption", null, `${l.R.kg ? `${l.R.kg} kg · ` : ""}${l.R.title} · ${when(l.card.filmed)}`));
+      tile.append(view, el("figcaption", null, `${l.R.kg ? `${fmtPlain(l.R.kg)} kg · ` : ""}${l.R.title} · ${when(l.card.filmed)}`));
       r.videos.append(tile);
       Object.assign(l, { video, canvas, view, url: URL.createObjectURL(l.blob), busy: null, want: null });
     }
@@ -118,7 +125,7 @@ export class Compare {
   async start() {
     if (this.tau >= this.hi - 1e-3) this.go(this.lo);
     this.playing = true;
-    this.r.play.textContent = "Pause";
+    this.r.play.textContent = tr("common.pause");
     await Promise.all(this.L.map((l) => this.seek(l, this.vt(l, this.tau))));
     if (!this.playing) return;
     for (const l of this.L) { l.video.playbackRate = this.rate * l.R.slow; l.video.play().catch(() => {}); }
@@ -143,7 +150,7 @@ export class Compare {
   stop() {
     if (!this.playing) return;
     this.playing = false;
-    this.r.play.textContent = "Play";
+    this.r.play.textContent = tr("common.play");
     for (const l of this.L) l.video.pause();
   }
 
@@ -155,18 +162,16 @@ export class Compare {
   }
   draw(all = true) {
     this.r.scrub.value = String(this.tau);
-    this.r.read.textContent = `${this.tau >= 0 ? "+" : "−"}${Math.abs(this.tau).toFixed(2)} s from lift-off`;
+    this.r.read.textContent = tr("compare.read", { t: `${this.tau >= 0 ? "+" : "−"}${num(Math.abs(this.tau), 2)}` });
     this.geoP = drawPaths(this.r.path, this.L, this.tau, this);
     this.geoS = drawSpeeds(this.r.speed, this.L, this.tau, this);
     if (all) for (const l of this.L) if (!l.busy) this.overlay(l);
   }
   chartDrag(canvas, at) {
-    const move = (e) => {
-      const r = canvas.getBoundingClientRect(), tau = at(e.clientX - r.left, e.clientY - r.top);
+    scrub(canvas, (p) => {
+      const tau = at(p.x, p.y);
       if (tau !== undefined && tau !== null) { this.stop(); this.go(tau); }
-    };
-    canvas.addEventListener("pointerdown", move);
-    canvas.addEventListener("pointermove", (e) => { if (e.buttons) move(e); });
+    });
   }
 
   /** every measurement side by side; with two lifts, the difference second minus first */
@@ -175,7 +180,7 @@ export class Compare {
     t.replaceChildren();
     const head = el("tr");
     head.append(el("th", null, ""));
-    for (const l of this.L) { const th = el("th", "col"); th.style.setProperty("--c", `var(${l.color})`); th.append(el("span", "sw", String(l.k + 1))); head.append(th); }
+    for (const l of this.L) { const th = el("th", "col"); th.style.setProperty("--c", `var(${l.color})`); th.style.setProperty("--c-on", `var(${l.color}-on)`); th.append(el("span", "sw", String(l.k + 1))); head.append(th); }
     if (two) head.append(el("th", "col", "2 − 1"));
     t.append(head);
     const rows = new Map(), groups = [];
@@ -189,21 +194,21 @@ export class Compare {
     for (const row of [...rows.values()].sort((a, b) => groups.indexOf(a.group) - groups.indexOf(b.group))) {
       if (row.group !== group) {
         group = row.group;
-        const tr = el("tr"), th = el("th", "grp", group);
+        const line = el("tr"), th = el("th", "grp", group);
         th.colSpan = this.L.length + 1 + (two ? 1 : 0);
-        tr.append(th);
-        t.append(tr);
+        line.append(th);
+        t.append(line);
       }
-      const tr = el("tr"), a = el("td", null, row.label);
+      const line = el("tr"), a = el("td", null, row.label);
       if (row.unit) a.append(el("span", "n", row.unit));
-      tr.append(a);
-      for (const l of this.L) { const m = row.vals[l.k]; tr.append(el("td", "v", m ? fmtMetric(m) : "–")); }
+      line.append(a);
+      for (const l of this.L) { const m = row.vals[l.k]; line.append(el("td", "v", m ? fmtMetric(m) : "–")); }
       if (two) {
         const [m1, m2] = [row.vals[0], row.vals[1]];
         const d = m1 && m2 && !m1.category && m1.unit === m2.unit && Number.isFinite(m1.value) && Number.isFinite(m2.value) ? fmtMetric({ ...m2, value: m2.value - m1.value }, true) : "–";
-        tr.append(el("td", "v d", d));
+        line.append(el("td", "v d", d));
       }
-      t.append(tr);
+      t.append(line);
     }
   }
 }
@@ -228,7 +233,7 @@ function ticks(lo, hi, n) {
   for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(6));
   return out;
 }
-const fmt = (v, d) => (Math.abs(v) < 1e-9 ? 0 : v).toFixed(d).replace("-", "−");
+const fmt = (v, d) => num(Math.abs(v) < 1e-9 ? 0 : v, d).replace("-", "−");
 function grid(ctx, m, w, h, xs, ys, px, py, xfmt, yfmt) {
   ctx.lineWidth = 1;
   for (const v of ys) {
@@ -259,7 +264,7 @@ function drawPaths(canvas, L, tau, C) {
   const m = { l: 38, r: 10, t: 26, b: 34 };
   const px = (xcm) => m.l + ((xcm + ext) / (2 * ext)) * (w - m.l - m.r);
   const py = (hm) => h - m.b - ((hm - bot) / (top - bot)) * (h - m.t - m.b);
-  grid(ctx, m, w, h, ticks(-ext, ext, 5), ticks(bot, top, 6), px, py, (v) => (v > 0 ? `+${v}` : fmt(v, 0)), (v) => fmt(v, v % 1 ? 2 : 1));
+  grid(ctx, m, w, h, ticks(-ext, ext, 5), ticks(bot, top, 6), px, py, (v) => (v > 0 ? `+${fmtPlain(v)}` : fmt(v, 0)), (v) => fmt(v, v % 1 ? 2 : 1));
   const R0 = L[0].R;
   ctx.fillStyle = tok("--muted"); ctx.textBaseline = "top";
   ctx.textAlign = "left"; ctx.fillText(R0.axis.h, 4, 2);
@@ -298,7 +303,7 @@ function drawSpeeds(canvas, L, tau, C) {
   const py = (v) => h - m.b - ((v - lo) / (hi - lo)) * (h - m.t - m.b);
   grid(ctx, m, w, h, ticks(C.lo, C.hi, 6), ticks(lo, hi, 5), px, py, (v) => fmt(v, 1), (v) => fmt(v, 1));
   ctx.fillStyle = tok("--muted"); ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillText("m/s", 4, 0);
-  ctx.textAlign = "right"; ctx.fillText("s from lift-off", w - m.r, 0);
+  ctx.textAlign = "right"; ctx.fillText(tr("axis.t.liftoff"), w - m.r, 0);
   ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
   for (const { R, color } of L) {
     ctx.strokeStyle = tok(color);

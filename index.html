@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#f2f1ed" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
-<title>Bar Path</title>
-<meta name="description" content="Weightlifting bar path, bar speed and lift stages from one phone video.">
+<title data-i18n="app.name">Bar Path</title>
+<meta name="description" content="Weightlifting bar path, bar speed and lift stages from one phone video." data-i18n-attr="content: app.description">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="canonical" href="https://croway.github.io/barpath/">
 <link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
@@ -14,87 +14,106 @@
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
+<!-- icons: 24×24, strokes in currentColor; status shapes filled with currentColor, their mark in --icon-on -->
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-good" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M7 12.4l3.3 3.3 6.9-6.9" fill="none" style="stroke: var(--icon-on)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-warning" viewBox="0 0 24 24"><path d="M10.3 3.1a2 2 0 0 1 3.4 0l8.6 15a2 2 0 0 1-1.7 2.9H3.4a2 2 0 0 1-1.7-2.9z" fill="currentColor"/><path d="M12 9v4.4" fill="none" style="stroke: var(--icon-on)" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="17.1" r="1.35" style="fill: var(--icon-on)"/></symbol>
+  <symbol id="i-serious" viewBox="0 0 24 24"><path d="M7.4 1.5h9.2l5.9 5.9v9.2l-5.9 5.9H7.4l-5.9-5.9V7.4z" fill="currentColor"/><path d="M12 6.6v6.4" fill="none" style="stroke: var(--icon-on)" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="16.9" r="1.35" style="fill: var(--icon-on)"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" stroke-width="2.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-maybe" viewBox="0 0 24 24"><path d="M8.8 8.6a3.3 3.3 0 1 1 4.9 2.9c-1 .6-1.7 1.2-1.7 2.4v.5" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="18.6" r="1.4" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2.8l2.8 5.8 6.3.9-4.6 4.4 1.1 6.3L12 17.2l-5.6 3 1.1-6.3-4.6-4.4 6.3-.9z" fill="currentColor" stroke-width="1" stroke-linejoin="round"/></symbol>
+  <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="currentColor" stroke="none"/></symbol>
+</svg>
+
 <header class="top">
   <img class="logo" src="icons/favicon.svg" alt="" width="40" height="40">
-  <h1>Bar Path</h1>
-  <p>Weightlifting analysis from one phone</p>
+  <h1 data-i18n="app.name">Bar Path</h1>
+  <p data-i18n="app.tagline">Weightlifting analysis from one phone</p>
   <div class="top-actions">
-    <button id="btnInstall" type="button" hidden>Install</button>
-    <button id="btnShareApp" type="button" aria-haspopup="dialog">Share app</button>
+    <button id="btnInstall" type="button" hidden data-i18n="app.install">Install</button>
   </div>
 </header>
 
 <dialog id="shareDlg" class="sheet" aria-labelledby="shareTitle">
-  <h2 id="shareTitle">Share Bar Path</h2>
+  <h2 id="shareTitle" data-i18n="share.title">Share Bar Path</h2>
   <div class="qr" id="shareQr"></div>
   <p class="share-link" id="shareLink"></p>
   <p class="hint" id="shareNote"></p>
   <div class="actions">
-    <button id="btnShareSend" class="primary" type="button">Send link</button>
-    <button id="btnShareCopy" type="button">Copy link</button>
-    <button id="btnShareClose" type="button">Done</button>
+    <button id="btnShareSend" class="primary" type="button" data-i18n="share.send">Send link</button>
+    <button id="btnShareCopy" type="button" data-i18n="share.copy">Copy link</button>
+    <button id="btnShareClose" type="button" data-i18n="share.done">Done</button>
   </div>
 </dialog>
 
 <main>
   <!-- 1 · get a video -->
   <section id="start" class="panel">
-    <h2>Film the lift from the side</h2>
-    <ol class="tips">
-      <li><b>Lens at hip height (~1 m), phone level.</b> Not on the floor tilted up.</li>
-      <li><b>4–5 m away with 2× zoom</b> (portrait), the lift filling most of the frame, floor included.</li>
-      <li><b>Square to the bar:</b> the far plate hides behind the near one, which looks round.</li>
-      <li><b>1080p, 60 fps.</b> Slow motion works too; set how much it's slowed.</li>
-    </ol>
-    <p class="hint">Snatch, clean, squat, deadlift, bench press and overhead press are recognised on their own.</p>
+    <h2 data-i18n="start.title">Film the lift from the side</h2>
+    <!-- open on the first visit; closed once the gallery has a lift (app.js) -->
+    <details class="howto" id="howto" open>
+      <summary data-i18n="start.howto">How to film it</summary>
+      <ol class="tips">
+        <li data-i18n-rich="start.tip1"><b>Lens at hip height (~1 m), phone level.</b> Not on the floor tilted up.</li>
+        <li data-i18n-rich="start.tip2"><b>4–5 m away with 2× zoom</b> (portrait), the lift filling most of the frame, floor included.</li>
+        <li data-i18n-rich="start.tip3"><b>Square to the bar:</b> the far plate hides behind the near one, which looks round.</li>
+        <li data-i18n-rich="start.tip4"><b>1080p, 60 fps.</b> Slow motion works too; set how much it's slowed.</li>
+      </ol>
+    </details>
+    <p class="hint" data-i18n="start.lifts">Snatch, clean, squat, deadlift, bench press and overhead press are recognised on their own.</p>
     <div class="actions">
-      <button id="btnRecord" class="primary" type="button">Record</button>
-      <label class="button" for="fileInput">Choose a video</label>
-      <button id="btnGallery" type="button" hidden>Gallery</button>
+      <button id="btnRecord" class="primary" type="button" data-i18n="start.record">Record</button>
+      <label class="button" for="fileInput" data-i18n="start.choose">Choose a video</label>
+      <button id="btnGallery" type="button" hidden data-i18n="start.gallery">Gallery</button>
     </div>
     <input id="fileInput" type="file" accept="video/*" hidden>
     <input id="captureInput" type="file" accept="video/*" capture="environment" hidden>
-    <p class="hint" id="recordHint">Record opens the phone's camera app, which films at 60 fps. If it starts on the front camera, flip to the back one; the first time, pick <b>FHD 60</b> at the top right (it's remembered). Or film in the camera app and choose the video.</p>
-    <button id="btnCamLevel" class="link" type="button" hidden>In-app camera with a spirit level (30 fps)</button>
-    <p class="hint" id="installHint" hidden>To keep it on the home screen: Safari's Share button → <b>Add to Home Screen</b>.</p>
-    <p class="hint" id="shareHint" hidden>Tip: in your Gallery, share a video to <b>Bar Path</b> to open it here.</p>
+    <p class="hint" id="recordHint" data-i18n-rich="start.recordHint">Record opens the phone's camera app, which films at 60 fps. If it starts on the front camera, flip to the back one; the first time, pick <b>FHD 60</b> at the top right (it's remembered). Or film in the camera app and choose the video.</p>
+    <button id="btnCamLevel" class="link" type="button" hidden data-i18n="start.camLevel">In-app camera with a spirit level (30 fps)</button>
+    <p class="hint" id="installHint" hidden data-i18n-rich="start.installHint">To keep it on the home screen: Safari's Share button → <b>Add to Home Screen</b>.</p>
+    <p class="hint" id="shareHint" hidden data-i18n-rich="start.shareHint">Tip: in your Gallery, share a video to <b>Bar Path</b> to open it here.</p>
   </section>
 
   <!-- the gallery: every analysed lift kept on this phone -->
   <section id="gallery" hidden>
     <div class="screen-head">
-      <button id="btnGalBack" class="back" type="button" aria-label="Back">‹</button>
-      <h2>Gallery</h2>
+      <button id="btnGalBack" class="back" type="button" aria-label="Back" data-i18n-attr="aria-label: gallery.back"><svg class="i"><use href="#i-left"/></svg></button>
+      <h2 data-i18n="gallery.title">Gallery</h2>
       <span class="hint num" id="galSummary"></span>
     </div>
-    <div class="chips" id="galFilters" role="group" aria-label="Show"></div>
-    <p class="hint" id="galEmpty" hidden>Every lift you analyse is kept here, on this phone, to open again and to compare.</p>
+    <div class="chips" id="galFilters" role="group" aria-label="Show" data-i18n-attr="aria-label: gallery.filters"></div>
+    <p class="hint" id="galStatus" aria-live="polite"></p>
+    <p class="hint" id="galEmpty" hidden data-i18n="gallery.empty">Every lift you analyse is kept here, on this phone, to open again and to compare.</p>
     <ul class="lifts" id="galList"></ul>
-    <p class="hint">Tap a lift to see its analysis. Tick two to compare them.</p>
+    <p class="hint" data-i18n="gallery.hint">Tap a lift to see its analysis. Tick two to four to compare them, or any to keep only their analysed part or delete them.</p>
     <div class="selbar" id="galBar" hidden>
       <span id="galBarText"></span>
-      <button id="btnGalDelete" type="button">Delete</button>
-      <button id="btnGalCompare" class="primary" type="button">Compare</button>
+      <button id="btnGalDelete" class="danger" type="button" data-i18n="gallery.delete">Delete</button>
+      <button id="btnGalTrim" type="button" data-i18n="gallery.trim">Trim</button>
+      <button id="btnGalCompare" class="primary" type="button" data-i18n="gallery.compare">Compare</button>
     </div>
   </section>
 
   <!-- comparing saved lifts -->
   <section id="compare" hidden>
     <div class="screen-head">
-      <button id="btnCmpBack" class="back" type="button" aria-label="Back to the gallery">‹</button>
-      <h2>Compare</h2>
+      <button id="btnCmpBack" class="back" type="button" aria-label="Back to the gallery" data-i18n-attr="aria-label: compare.back"><svg class="i"><use href="#i-left"/></svg></button>
+      <h2 data-i18n="compare.title">Compare</h2>
     </div>
     <ul class="cmp-legend" id="cmpLegend"></ul>
     <p class="hint" id="cmpNote" hidden></p>
     <div class="cmp-videos" id="cmpVideos"></div>
     <div class="scrub">
-      <button id="cmpPrev" type="button" aria-label="Back one frame">‹</button>
-      <input id="cmpScrub" type="range" aria-label="Time from lift-off">
-      <button id="cmpNext" type="button" aria-label="Forward one frame">›</button>
+      <button id="cmpPrev" type="button" aria-label="Back one frame" data-i18n-attr="aria-label: common.backFrame"><svg class="i"><use href="#i-left"/></svg></button>
+      <input id="cmpScrub" type="range" aria-label="Time from lift-off" data-i18n-attr="aria-label: compare.scrub">
+      <button id="cmpNext" type="button" aria-label="Forward one frame" data-i18n-attr="aria-label: common.forwardFrame"><svg class="i"><use href="#i-right"/></svg></button>
     </div>
     <div class="replay">
-      <button id="cmpPlay" class="primary" type="button">Play</button>
-      <div class="seg" role="group" aria-label="Replay speed" id="cmpRates">
+      <button id="cmpPlay" class="primary" type="button" data-i18n="common.play">Play</button>
+      <div class="seg" role="group" aria-label="Replay speed" data-i18n-attr="aria-label: common.replaySpeed" id="cmpRates">
         <button type="button" data-rate="0.25" aria-pressed="true">¼×</button>
         <button type="button" data-rate="0.5" aria-pressed="false">½×</button>
         <button type="button" data-rate="1" aria-pressed="false">1×</button>
@@ -102,17 +121,17 @@
     </div>
     <p class="hint num" id="cmpRead"></p>
     <article class="card">
-      <h3>Bar paths · side view</h3>
-      <p class="sub">Each from its own start position. Drag across them to scrub every video.</p>
-      <div class="chart"><canvas id="cmpPath" aria-label="Bar paths of the lifts compared"></canvas></div>
+      <h3 data-i18n="compare.paths.title">Bar paths · side view</h3>
+      <p class="sub" data-i18n="compare.paths.sub">Each from its own start position. Drag across them to scrub every video.</p>
+      <div class="chart"><canvas id="cmpPath" role="img" aria-label="Bar paths of the lifts compared" data-i18n-attr="aria-label: compare.paths.aria"></canvas></div>
     </article>
     <article class="card">
-      <h3>Bar speed · up and down</h3>
-      <p class="sub">Lined up at lift-off. Drag across it to scrub.</p>
-      <div class="chart"><canvas id="cmpSpeed" aria-label="Bar speeds of the lifts compared"></canvas></div>
+      <h3 data-i18n="compare.speed.title">Bar speed · up and down</h3>
+      <p class="sub" data-i18n="compare.speed.sub">Lined up at lift-off. Drag across it to scrub.</p>
+      <div class="chart"><canvas id="cmpSpeed" role="img" aria-label="Bar speeds of the lifts compared" data-i18n-attr="aria-label: compare.speed.aria"></canvas></div>
     </article>
     <article class="card">
-      <h3>Every measurement</h3>
+      <h3 data-i18n="compare.table.title">Every measurement</h3>
       <table class="table cmp" id="cmpTable"></table>
     </article>
   </section>
@@ -121,14 +140,14 @@
   <section id="camera" class="panel" hidden>
     <div class="viewer cam" id="camViewer">
       <video id="camVideo" playsinline muted></video>
-      <div class="guide" aria-hidden="true"><span class="floor"></span></div>
-      <div class="level" id="level" aria-live="polite"><span class="bubble"></span><span class="read" id="levelRead">Level: —</span></div>
-      <span class="rec-badge" id="recBadge" hidden>● REC <span id="recTime">0.0</span> s</span>
+      <div class="guide" aria-hidden="true"><span class="floor"><i data-i18n="camera.floor">floor about here</i></span></div>
+      <div class="level" id="level" aria-live="polite"><span class="bubble"></span><span class="read" id="levelRead" data-i18n="camera.level.wait">Level: —</span></div>
+      <span class="rec-badge" id="recBadge" hidden><svg class="i"><use href="#i-dot"/></svg><span data-i18n="camera.rec">REC</span> <span id="recTime">0.0</span> s</span>
     </div>
     <p class="hint" id="camInfo"></p>
     <div class="actions">
-      <button id="btnRecToggle" class="primary rec" type="button">Start recording</button>
-      <button id="btnCamClose" type="button">Cancel</button>
+      <button id="btnRecToggle" class="primary rec" type="button" data-i18n="camera.start">Start recording</button>
+      <button id="btnCamClose" type="button" data-i18n="common.cancel">Cancel</button>
     </div>
   </section>
 
@@ -139,38 +158,38 @@
       <canvas id="overlay"></canvas>
       <div class="hud" id="hud" hidden></div>
     </div>
-    <div class="timeline" id="timeline" role="group" aria-label="Part of the video to analyse"></div>
+    <div class="timeline" id="timeline" role="group" aria-label="Part of the video to analyse" data-i18n-attr="aria-label: work.timeline"></div>
     <div class="scrub">
-      <button id="btnPrev" type="button" aria-label="Back one frame">‹</button>
-      <button id="btnNext" type="button" aria-label="Forward one frame">›</button>
+      <button id="btnPrev" type="button" aria-label="Back one frame" data-i18n-attr="aria-label: common.backFrame"><svg class="i"><use href="#i-left"/></svg></button>
+      <button id="btnNext" type="button" aria-label="Forward one frame" data-i18n-attr="aria-label: common.forwardFrame"><svg class="i"><use href="#i-right"/></svg></button>
       <span id="timeRead" class="num" aria-live="polite"></span>
-      <button id="btnPreview" class="play" type="button" aria-label="Play the chosen part">Play</button>
+      <button id="btnPreview" class="play" type="button" aria-label="Play the chosen part" data-i18n-attr="aria-label: work.preview" data-i18n="common.play">Play</button>
     </div>
 
     <div id="mark" class="panel">
       <p class="instr" id="markInstr"></p>
       <div class="field" id="sizeField" hidden>
-        <label for="plateSize">Circle size</label>
+        <label for="plateSize" data-i18n="mark.size">Circle size</label>
         <input id="plateSize" type="range" min="70" max="130" value="100">
-        <span class="hint">Match the circle to the plate's outer edge. Tap again to move it.</span>
+        <span class="hint" data-i18n="mark.sizeHint">Match the circle to the plate's outer edge. Tap again to move it.</span>
       </div>
       <div class="actions">
-        <button id="btnAnalyse" class="primary" type="button" disabled>Analyse</button>
-        <button id="btnNew" type="button">New video</button>
+        <button id="btnAnalyse" class="primary" type="button" disabled data-i18n="mark.analyse">Analyse</button>
+        <button id="btnNew" type="button" data-i18n="mark.newVideo">New video</button>
       </div>
       <p class="hint" id="videoInfo"></p>
     </div>
 
     <div id="running" class="panel" hidden>
       <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="prog"><div id="progBar"></div></div>
-      <p id="progText" class="hint">Analysing…</p>
-      <button id="btnCancel" type="button">Cancel</button>
+      <p id="progText" class="hint" data-i18n="run.analysing">Analysing…</p>
+      <button id="btnCancel" type="button" data-i18n="common.cancel">Cancel</button>
     </div>
 
     <div id="results" hidden>
       <div class="replay">
-        <button id="btnPlay" type="button" class="primary">Play</button>
-        <div class="seg" role="group" aria-label="Replay speed" id="rates">
+        <button id="btnPlay" type="button" class="primary" data-i18n="common.play">Play</button>
+        <div class="seg" role="group" aria-label="Replay speed" data-i18n-attr="aria-label: common.replaySpeed" id="rates">
           <button type="button" data-rate="0.25" aria-pressed="true">¼×</button>
           <button type="button" data-rate="0.5" aria-pressed="false">½×</button>
           <button type="button" data-rate="1" aria-pressed="false">1×</button>
@@ -181,104 +200,122 @@
         <p class="hint" id="resSub"></p>
         <p class="hint" id="resSaved"></p>
         <div class="res-picks">
-          <label class="inline">Lift
+          <label class="inline"><span data-i18n="res.lift">Lift</span>
             <select id="liftSel">
-              <option value="auto">Auto</option><option value="snatch">Snatch</option><option value="clean">Clean</option>
-              <option value="deadlift">Deadlift</option><option value="squat">Squat</option>
-              <option value="bench">Bench press</option><option value="press">Overhead press</option>
+              <option value="auto" data-i18n="res.lift.auto">Auto</option><option value="snatch" data-i18n="lift.snatch">Snatch</option><option value="clean" data-i18n="lift.clean">Clean</option>
+              <option value="deadlift" data-i18n="lift.deadlift">Deadlift</option><option value="squat" data-i18n="lift.squat">Squat</option>
+              <option value="bench" data-i18n="lift.bench">Bench press</option><option value="press" data-i18n="lift.press">Overhead press</option>
             </select>
           </label>
-          <label class="inline load-pick">Load
+          <label class="inline load-pick"><span data-i18n="res.load">Load</span>
             <input id="kg" type="number" inputmode="decimal" min="0" max="500" step="0.5" placeholder="–" aria-describedby="kgHint"> kg
           </label>
         </div>
-        <p class="hint" id="kgHint">Add the load on the bar to see power and force.</p>
+        <p class="hint" id="kgHint" data-i18n="res.kgHint">Add the load on the bar to see power and force.</p>
       </div>
       <div class="tiles" id="tiles"></div>
       <ul class="notes" id="notes"></ul>
 
+      <article class="card">
+        <h3 data-i18n="res.checks.title">Checks</h3>
+        <p class="sub" data-i18n="res.checks.sub">Starting thresholds, meant to be tuned with your coach.</p>
+        <ul class="checks" id="checks"></ul>
+      </article>
+
       <article class="card" id="repsCard" hidden>
-        <h3>Reps · mean lifting speed</h3>
-        <p class="sub">Each rep's average speed on the way up. Tap a rep to jump to it.</p>
-        <div class="chart"><canvas id="repsChart" tabindex="0" aria-label="Mean lifting speed per rep"></canvas></div>
+        <h3 data-i18n="res.reps.title">Reps · mean lifting speed</h3>
+        <p class="sub" data-i18n="res.reps.sub">Each rep's average speed on the way up. Tap a rep to jump to it.</p>
+        <div class="chart"><canvas id="repsChart" role="img" tabindex="0" aria-label="Mean lifting speed per rep" data-i18n-attr="aria-label: res.reps.aria"></canvas></div>
         <table class="table reps" id="repsTable"></table>
       </article>
 
       <article class="card">
-        <h3>Bar path · side view</h3>
-        <p class="sub">Coloured by bar speed. The sideways scale is stretched to show the loop. Drag across it to scrub.</p>
-        <div class="chart"><canvas id="pathChart" tabindex="0" aria-label="Bar path chart"></canvas><div class="tip" hidden></div></div>
-        <div class="key"><span>Bar speed</span><span class="num">0</span><span class="ramp" id="rampKey"></span><span class="num" id="rampMax"></span></div>
+        <h3 data-i18n="res.path.title">Bar path · side view</h3>
+        <p class="sub" data-i18n="res.path.sub">Coloured by bar speed. The sideways scale is stretched to show the loop. Drag across it to scrub.</p>
+        <div class="chart"><canvas id="pathChart" role="img" tabindex="0" aria-label="Bar path chart" data-i18n-attr="aria-label: res.path.aria"></canvas><div class="tip" hidden></div></div>
+        <div class="key"><span data-i18n="res.path.key">Bar speed</span><span class="num">0</span><span class="ramp" id="rampKey"></span><span class="num" id="rampMax"></span></div>
       </article>
 
       <article class="card">
-        <h3>Bar speed · up and down</h3>
-        <p class="sub">Shaded by stage. Drag across it to scrub.</p>
-        <div class="chart"><canvas id="speedChart" tabindex="0" aria-label="Bar speed chart"></canvas><div class="tip" hidden></div></div>
+        <h3 data-i18n="res.speed.title">Bar speed · up and down</h3>
+        <p class="sub" data-i18n="res.speed.sub">Shaded by stage. Drag across it to scrub.</p>
+        <div class="chart"><canvas id="speedChart" role="img" tabindex="0" aria-label="Bar speed chart" data-i18n-attr="aria-label: res.speed.aria"></canvas><div class="tip" hidden></div></div>
       </article>
 
       <article class="card">
-        <h3 id="stageTitle">Stage timing</h3>
+        <h3 id="stageTitle" data-i18n="res.stages.title">Stage timing</h3>
         <div class="segbar" id="stageBar"></div>
         <ul class="legend" id="stageLegend"></ul>
       </article>
 
       <article class="card">
-        <h3>Checks</h3>
-        <p class="sub">Starting thresholds, meant to be tuned with your coach.</p>
-        <ul class="checks" id="checks"></ul>
-      </article>
-
-      <article class="card">
-        <h3>Every measurement</h3>
+        <h3 data-i18n="res.table.title">Every measurement</h3>
         <table class="table" id="table"></table>
+        <p class="hint" id="runInfo"></p>
       </article>
 
-      <div class="actions wrap">
-        <button id="btnFlip" type="button">Flip direction</button>
-        <button id="btnCsv" type="button">Export CSV</button>
-        <button id="btnJson" type="button">Export JSON</button>
-        <button id="btnSaveVideo" type="button" hidden>Save video</button>
-        <button id="btnAgain" type="button">Mark again</button>
-        <button id="btnNew2" type="button">New video</button>
-        <button id="btnGallery2" type="button">Gallery</button>
-        <button id="btnDelete" type="button" hidden>Delete</button>
+      <div class="res-actions">
+        <div class="actions">
+          <button id="btnNew2" class="primary" type="button" data-i18n="res.actions.newVideo">New video</button>
+          <button id="btnGallery2" type="button" data-i18n="res.actions.gallery">Gallery</button>
+        </div>
+        <div class="actions">
+          <button id="btnAgain" type="button" data-i18n="res.actions.again">Mark again</button>
+          <button id="btnFlip" type="button" data-i18n="res.actions.flip">Flip direction</button>
+        </div>
+        <div class="actions export" role="group" aria-labelledby="exportLabel">
+          <span id="exportLabel" data-i18n="res.actions.export">Export</span>
+          <button id="btnCsv" type="button">CSV</button>
+          <button id="btnJson" type="button">JSON</button>
+          <button id="btnSaveVideo" type="button" hidden data-i18n="res.actions.video">Video</button>
+        </div>
+        <div class="trim-row" id="trimRow" hidden>
+          <button id="btnTrim" type="button" data-i18n="res.trim.button">Keep only the analysed part</button>
+          <p class="hint" id="trimInfo"></p>
+        </div>
+        <button id="btnDelete" class="danger" type="button" hidden data-i18n="res.actions.delete">Delete this lift</button>
       </div>
     </div>
   </section>
 
   <details class="settings panel" id="settings">
-    <summary>Settings</summary>
+    <summary data-i18n="settings.title">Settings</summary>
     <div class="grid">
-      <label>Plate diameter
+      <label><span data-i18n="settings.plate">Plate diameter</span>
         <select id="plateMm">
-          <option value="450" selected>450 mm (bumper)</option>
+          <option value="450" selected data-i18n="settings.plate.bumper">450 mm (bumper)</option>
           <option value="400">400 mm</option><option value="350">350 mm</option>
           <option value="300">300 mm</option><option value="250">250 mm</option>
         </select>
       </label>
-      <label>Video speed
+      <label><span data-i18n="settings.slowmo">Video speed</span>
         <select id="slowmo">
-          <option value="1" selected>Real time</option>
-          <option value="2">Slowed 2×</option><option value="4">Slowed 4× (120 fps)</option>
-          <option value="8">Slowed 8× (240 fps)</option>
+          <option value="1" selected data-i18n="settings.slowmo.1">Real time</option>
+          <option value="2" data-i18n="settings.slowmo.2">Slowed 2×</option><option value="4" data-i18n="settings.slowmo.4">Slowed 4× (120 fps)</option>
+          <option value="8" data-i18n="settings.slowmo.8">Slowed 8× (240 fps)</option>
         </select>
       </label>
-      <label>Lifter faces
-        <select id="facing"><option value="0" selected>Auto</option><option value="-1">Left</option><option value="1">Right</option></select>
+      <label><span data-i18n="settings.facing">Lifter faces</span>
+        <select id="facing"><option value="0" selected data-i18n="settings.facing.auto">Auto</option><option value="-1" data-i18n="settings.facing.left">Left</option><option value="1" data-i18n="settings.facing.right">Right</option></select>
       </label>
-      <label>Your height (cm)
-        <input id="heightCm" type="number" inputmode="numeric" min="100" max="250" step="1" placeholder="optional">
+      <label><span data-i18n="settings.height">Your height (cm)</span>
+        <input id="heightCm" type="number" inputmode="numeric" min="100" max="250" step="1" placeholder="optional" data-i18n-attr="placeholder: settings.height.placeholder">
       </label>
-      <label>Body tracking
+      <label><span data-i18n="settings.pose">Body tracking</span>
         <select id="poseModel">
-          <option value="full" selected>On (accurate)</option>
-          <option value="lite">On (faster)</option>
-          <option value="off">Off</option>
+          <option value="full" selected data-i18n="settings.pose.full">On (accurate)</option>
+          <option value="lite" data-i18n="settings.pose.lite">On (faster)</option>
+          <option value="off" data-i18n="settings.pose.off">Off</option>
         </select>
+      </label>
+      <label id="langField" hidden><span data-i18n="settings.lang">Language</span>
+        <select id="langSel"></select>
       </label>
     </div>
-    <p class="hint">Your height puts the bar's peak height and the jerk's dip in proportion to you, as studies of lifters do. Body tracking downloads a 6–9 MB model the first time. Everything runs on this device; nothing is uploaded.</p>
+    <p class="hint" data-i18n="settings.hint">Your height puts the bar's peak height and the jerk's dip in proportion to you, as studies of lifters do. Body tracking downloads a 6–9 MB model the first time. Everything runs on this device; nothing is uploaded.</p>
+    <div class="share-row">
+      <button id="btnShareApp" type="button" aria-haspopup="dialog" data-i18n="settings.share">Share Bar Path</button>
+    </div>
   </details>
 </main>
 

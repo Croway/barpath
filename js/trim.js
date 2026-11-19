@@ -9,6 +9,7 @@
  * Callbacks: onInput(what, t) while dragging, onCommit(what, t, nudged) on release (nudged: a frame step, not a
  * drag); what is "in", "out" or "head".
  */
+import { tr } from "./i18n.js";
 import { seek, load } from "./video.js";
 
 const HANDLE = 22; // px each handle sticks out beyond the selection; also the strip's side padding
@@ -34,7 +35,7 @@ export class Timeline {
     this.hIn = div("handle in");
     this.hOut = div("handle out");
     this.hHead = div("head");
-    for (const [h, label] of [[this.hIn, "Start of the part to analyse"], [this.hOut, "End of the part to analyse"]]) {
+    for (const [h, label] of [[this.hIn, tr("trim.start")], [this.hOut, tr("trim.end")]]) {
       h.setAttribute("role", "slider");
       h.setAttribute("aria-label", label);
       h.tabIndex = 0;

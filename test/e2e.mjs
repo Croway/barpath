@@ -133,8 +133,8 @@ await page.screenshot({ path: `${outDir}/05-results.png` });
 await page.screenshot({ path: `${outDir}/06-results-full.png`, fullPage: true });
 
 // scrub by dragging on the speed chart, and check the replay follows
-const sc = await page.locator("#speedChart").boundingBox();
 await page.locator("#speedChart").scrollIntoViewIfNeeded();
+const sc = await page.locator("#speedChart").boundingBox(); // measured after the scroll
 await page.mouse.move(sc.x + sc.width * 0.45, sc.y + sc.height * 0.5);
 await page.waitForTimeout(500);
 const cur = await page.evaluate(() => ({ cursor: window.__barpath.cursor, t: document.getElementById("video").currentTime, hud: document.getElementById("hud").textContent, tip: document.querySelector("#speedChart + .tip").innerText }));
@@ -148,6 +148,7 @@ console.log("replay:", JSON.stringify(played));
 await page.screenshot({ path: `${outDir}/08-replay.png` });
 
 // share the app: the dialog's QR code, drawn from its SVG, read back by an independent decoder
+await page.evaluate(() => { document.getElementById("settings").open = true; }); // Share app sits in Settings
 await page.tap("#btnShareApp");
 await page.waitForSelector("#shareDlg[open]");
 await page.waitForTimeout(200);

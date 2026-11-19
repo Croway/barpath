@@ -1,7 +1,7 @@
 /* Bar Path: the screens and the flow. Get a video (record or pick), mark the plate, track every frame,
  * analyse, show the replay and the charts. Everything runs on the device. */
 import { PlateTracker, detectAt } from "./plate.js";
-import { analyse, fmtSigned, fmtMetric, LIFTS } from "./analysis.js";
+import { analyse, fmtSigned, fmtMetric, fmtPlain, LIFTS } from "./analysis.js";
 import * as V from "./video.js";
 import * as Pose from "./pose.js";
 import * as Rec from "./recorder.js";
@@ -9,11 +9,28 @@ import * as Ov from "./overlay.js";
 import { Timeline } from "./trim.js";
 import { initShare } from "./share.js";
 import * as Store from "./store.js";
-import { Gallery } from "./gallery.js";
+import { Gallery, mb } from "./gallery.js";
 import { Compare } from "./compare.js";
-import { drawPath, drawSpeed, drawReps, pathHit, speedHit, fillTip, rampCss, span, where } from "./charts.js";
+import { drawPath, drawSpeed, drawReps, pathHit, speedHit, fillTip, rampCss, span, where, scrub } from "./charts.js";
+import { tr, num, rich, applyDom, setLang, pickLang, getLang, LANGS } from "./i18n.js";
+import en from "../locales/en.js";
 
 const $ = (id) => document.getElementById(id);
+
+/* the language first: everything below may show text (the timeline labels its handles as it's built) */
+const LANG_KEY = "barpath.lang";
+let savedLang = null;
+try { savedLang = localStorage.getItem(LANG_KEY); } catch { /* storage unavailable: the phone's language */ }
+await setLang(pickLang(savedLang));
+applyDom();
+{
+  const sel = $("langSel");
+  sel.replaceChildren(...Object.entries(LANGS).map(([code, name]) => Object.assign(document.createElement("option"), { value: code, textContent: name })));
+  sel.value = getLang();
+  $("langField").hidden = Object.keys(LANGS).length < 2;
+  sel.addEventListener("change", () => { try { localStorage.setItem(LANG_KEY, sel.value); } catch { /* ignore */ } location.reload(); });
+}
+
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const video = $("video"), overlay = $("overlay"), viewer = $("viewer");
 
@@ -47,6 +64,7 @@ const opts = () => ({ plateMm: +$("plateMm").value, slowmo: +$("slowmo").value, 
 /* ------------------------------------------------------------------ screens */
 function setMode(m) {
   S.mode = m;
+  document.body.dataset.mode = m; // the app's header shows on the start screen only
   $("start").hidden = m !== "start";
   $("gallery").hidden = m !== "gallery";
   $("compare").hidden = m !== "compare";
@@ -86,15 +104,14 @@ async function openVideo(file, name, recorded, saved = null) {
   if (!saved) { loadSettings(); $("liftSel").value = "auto"; $("facing").value = "0"; $("kg").value = ""; } // a new video starts from your defaults
   $("resSaved").textContent = "";
   $("btnDelete").hidden = true;
+  hideTrim();
   $("btnSaveVideo").hidden = !recorded;
   $("sizeField").hidden = true;
   $("btnAnalyse").disabled = true;
-  $("markInstr").replaceChildren(
-    "Drag the handles under the video to the part with the lift: the start just before it, bar still. Then ",
-    Object.assign(document.createElement("b"), { textContent: "tap the middle of the plate nearest the camera" }), ".");
+  rich($("markInstr"), tr("mark.instr"));
   TL.setVideo(0, 30);
   setMode("mark");
-  $("videoInfo").textContent = "Opening the video…";
+  $("videoInfo").textContent = tr("mark.opening");
   try {
     const info = await V.load(video, S.src);
     Object.assign(S, { W: info.W, H: info.H, duration: info.duration });
@@ -124,12 +141,12 @@ function restore(d) {
   $("btnAnalyse").disabled = false;
   videoInfo();
   showResults(true);
-  $("resSaved").textContent = "From the gallery on this phone. Mark again to change the part or the plate.";
+  $("resSaved").textContent = tr("res.saved.fromGallery");
   $("btnDelete").hidden = false;
+  updateTrim();
 }
 function videoInfo() {
-  const parts = [`${S.W}×${S.H}`, `${Math.round(S.fps)} fps`, `${S.duration.toFixed(1)} s`];
-  $("videoInfo").textContent = parts.join(" · ") + (S.fps >= 100 ? ". High frame rate: if it plays in real time, keep Video speed on Real time." : "");
+  $("videoInfo").textContent = tr(S.fps >= 100 ? "mark.videoInfoHighFps" : "mark.videoInfo", { w: S.W, h: S.H, fps: Math.round(S.fps), s: num(S.duration, 1) });
 }
 
 /* ------------------------------------------------------------------ scrubbing and choosing the part */
@@ -153,8 +170,8 @@ function shown(t = video.currentTime) {
 /** under the timeline: the chosen part while choosing it, the position in the video otherwise */
 function readout(t = video.currentTime) {
   $("timeRead").textContent = S.mode === "mark" && !preview
-    ? `${S.start.toFixed(2)}–${endT().toFixed(2)} s · ${(endT() - S.start).toFixed(2)} s`
-    : `${t.toFixed(2)} s`;
+    ? `${num(S.start, 2)}–${num(endT(), 2)} s · ${num(endT() - S.start, 2)} s`
+    : `${num(t, 2)} s`;
 }
 const onStart = (t) => Math.abs(t - S.start) < 0.5 / S.fps; // is the video showing the frame the analysis starts on?
 
@@ -183,7 +200,7 @@ let preview = false;
 async function startPreview() {
   stopPlayback();
   preview = true;
-  $("btnPreview").textContent = "Stop";
+  $("btnPreview").textContent = tr("common.stop");
   await seekTo(S.start);
   if (!preview) return;
   video.playbackRate = 1;
@@ -204,7 +221,7 @@ function stopPreview() {
   if (!preview) return;
   preview = false;
   video.pause();
-  $("btnPreview").textContent = "Play";
+  $("btnPreview").textContent = tr("common.play");
   TL.setHead(null);
   seekTo(S.start);
 }
@@ -227,9 +244,9 @@ function refindPlate() {
     S.plate = { x: p.x, y: p.y, r: p.r };
     S.r0 = p.r;
     $("plateSize").value = "100";
-    $("markInstr").textContent = "Plate found again on the new start frame. Check the circle sits on its outer edge, then Analyse.";
+    $("markInstr").textContent = tr("mark.refound");
   } else {
-    $("markInstr").textContent = "New start frame: check the circle still sits on the plate. If it doesn't, tap the plate's middle.";
+    $("markInstr").textContent = tr("mark.refindFailed");
   }
   redrawOverlay();
 }
@@ -238,7 +255,7 @@ overlay.addEventListener("pointerdown", (e) => {
   stopPreview();
   const t = video.currentTime;
   if (t > endT() - TL.minSpan + 1e-3) {
-    $("markInstr").textContent = "This is the end of the part to analyse. Tap the plate on its first frame, shown now.";
+    $("markInstr").textContent = tr("mark.atEnd");
     seekTo(S.start);
     return;
   }
@@ -250,9 +267,7 @@ overlay.addEventListener("pointerdown", (e) => {
   $("plateSize").value = "100";
   $("sizeField").hidden = false;
   $("btnAnalyse").disabled = false;
-  $("markInstr").textContent = found
-    ? "Plate found. Check the circle sits on its outer edge, then Analyse."
-    : "Couldn't find the plate's edge here. Tap its middle again, or size the circle to match it.";
+  $("markInstr").textContent = tr(found ? "mark.found" : "mark.notFound");
   readout();
   redrawOverlay();
 });
@@ -270,8 +285,8 @@ async function run() {
   let P = null;
   S.poseNote = "";
   if (kind !== "off") {
-    progress(0, "Loading body tracking…");
-    try { P = await Pose.load(kind); } catch (e) { S.poseNote = `Body tracking couldn't load (${e?.message || e}), so this is the bar only.`; }
+    progress(0, tr("run.loadingPose"));
+    try { P = await Pose.load(kind); } catch (e) { S.poseNote = tr("run.poseFailed", { error: e?.message || e }); }
   }
   if (ac.signal.aborted) return setMode("mark");
   await V.seek(video, S.start);
@@ -293,11 +308,11 @@ async function run() {
         samples.push(s);
         Ov.draw(overlay, { W: S.W, H: S.H, plate: s, trail: samples.map((q) => ({ x: q.x, y: q.y, k: null })), pose: s.pose });
       },
-      onProgress: (p) => progress(p, `Tracking the plate${P ? " and body" : ""}… ${samples.length} frames`),
+      onProgress: (p) => progress(p, tr(P ? "run.trackingBody" : "run.tracking", { n: samples.length })),
     });
   } catch (e) {
     setMode("mark");
-    if (e?.name !== "AbortError") $("markInstr").textContent = `Tracking stopped: ${e?.message || e}`;
+    if (e?.name !== "AbortError") $("markInstr").textContent = tr("mark.trackingStopped", { error: e?.message || e });
     shown();
     return;
   }
@@ -311,10 +326,26 @@ $("btnCancel").addEventListener("click", () => S.abort?.abort());
 document.addEventListener("visibilitychange", () => { if (!document.hidden && S.mode === "running" && video.paused) video.play().catch(() => {}); });
 
 /* ------------------------------------------------------------------ results */
-const STATUS = { good: ["✓", "Good"], warning: ["!", "Watch"], serious: ["!!", "Work on"] };
-const FROM = { you: "set by you", body: "from the body", bar: "guessed from the bar", guess: "guessed" };
-const RECOG = { you: "chosen by you", body: "recognised from the body", bar: "recognised from the bar only: check Lift" };
+const SVG = "http://www.w3.org/2000/svg";
+/** an icon from the sprite in index.html (#i-<name>), hidden from screen readers: the text next to it says it */
+function icon(name, cls = "") {
+  const s = document.createElementNS(SVG, "svg"), u = document.createElementNS(SVG, "use");
+  s.setAttribute("class", `i ${cls}`.trim());
+  s.setAttribute("aria-hidden", "true");
+  u.setAttribute("href", `#i-${name}`);
+  s.append(u);
+  return s;
+}
+/** a value and its unit: no space before ° and % */
+const withUnit = (v, unit) => (!unit ? v : /^[°%]/.test(unit) ? `${v}${unit}` : `${v} ${unit}`);
+/** how the tracking went: frames, seconds, body tracking (saved as "off" or "<model> on <device>") */
+function runInfo(st) {
+  const vars = { n: st.frames, s: num(st.seconds, 0) }, on = /^(\S+) on (\S+)$/.exec(st.pose);
+  return st.pose === "off" ? tr("res.runInfo.off", vars) : on ? tr("res.runInfo.on", { ...vars, model: on[1], device: on[2] }) : tr("res.runInfo.other", { ...vars, pose: String(st.pose) });
+}
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+/** a note above the results: a warning tint and icon */
+const note = (text) => { const li = el("li"); li.append(icon("warning", "ico warning"), el("span", null, text)); return li; };
 
 function showResults(fresh = false) {
   const R = analyse(S.samples, opts());
@@ -330,13 +361,15 @@ function showResults(fresh = false) {
 
   $("resTitle").textContent = R.title;
   const st = S.runStats;
+  // how the lift was recognised (res.liftFrom.<you|body|bar>) and which way the lifter faces (res.facingFrom.<…>)
+  const how = tr(`res.liftFrom.${R.liftFrom}`);
   $("resSub").textContent = [
-    `${LIFTS[R.lift]} ${RECOG[R.liftFrom] || ""}${R.liftFrom !== "you" && R.liftWhy ? ` (${R.liftWhy})` : ""}`,
-    `${R.lift === "bench" ? "head to the" : "faces"} ${R.facing > 0 ? "right" : "left"} (${FROM[R.facingFrom]})`,
-    R.kg ? `${R.kg} kg` : null,
-    R.slow > 1 ? `slowed ${R.slow}×` : null,
-    st ? `${st.frames} frames in ${st.seconds.toFixed(0)} s, body tracking ${st.pose}` : null,
+    R.liftFrom !== "you" && R.liftWhy ? tr("res.sub.liftWhy", { lift: LIFTS[R.lift], how, why: R.liftWhy }) : tr("res.sub.lift", { lift: LIFTS[R.lift], how }),
+    tr(`res.sub.${R.lift === "bench" ? "head" : "faces"}.${R.facing > 0 ? "right" : "left"}`, { how: tr(`res.facingFrom.${R.facingFrom}`) }),
+    R.kg ? `${fmtPlain(R.kg)} kg` : null,
+    R.slow > 1 ? tr("res.sub.slowed", { n: R.slow }) : null,
   ].filter(Boolean).join(" · ");
+  $("runInfo").textContent = st ? runInfo(st) : "";
 
   // headline numbers
   const tiles = $("tiles");
@@ -353,10 +386,10 @@ function showResults(fresh = false) {
 
   $("kgHint").hidden = !!R.kg;
   const notes = $("notes");
-  notes.replaceChildren(...[...R.notes, S.poseNote].filter(Boolean).map((n) => el("li", null, n)));
+  notes.replaceChildren(...[...R.notes, S.poseNote].filter(Boolean).map(note));
 
   // stage timing: one segmented bar (for a set: every rep's lowering, pause and lifting in turn)
-  $("stageTitle").textContent = R.reps ? "Tempo" : "Stage timing";
+  $("stageTitle").textContent = tr(R.reps ? "res.stages.tempo" : "res.stages.title");
   const bar = $("stageBar"), leg = $("stageLegend");
   bar.replaceChildren(); leg.replaceChildren();
   const total = R.stages.reduce((a, s) => a + s.dur, 0), named = new Set();
@@ -367,10 +400,10 @@ function showResults(fresh = false) {
     b.style.color = `var(--s${s.slot}-on)`;
     b.tabIndex = 0;
     b.setAttribute("role", "button");
-    const desc = `${s.rep ? `Rep ${s.rep} · ` : ""}${s.name}: ${s.dur.toFixed(2)} s (${Math.round((100 * s.dur) / total)}%)`;
+    const desc = tr(s.rep ? "res.stage.descRep" : "res.stage.desc", { rep: s.rep, name: s.name, s: num(s.dur, 2), pct: Math.round((100 * s.dur) / total) });
     b.setAttribute("aria-label", desc);
     b.title = desc;
-    b.append(el("span", null, `${s.dur.toFixed(2)} s`));
+    b.append(el("span", null, `${num(s.dur, 2)} s`));
     const go = () => setCursor(s.i0, true);
     b.addEventListener("click", go);
     b.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
@@ -390,18 +423,28 @@ function showResults(fresh = false) {
     const t = $("repsTable"), depth = R.reps.some((r) => r.depth !== undefined && r.depth !== null);
     t.replaceChildren();
     const head = el("tr");
-    for (const h of ["Rep", "Range cm", "Mean m/s", "Peak m/s", ...(R.kg ? ["Power W"] : []), "Down s", "Up s", ...(depth ? ["Depth cm"] : [])]) head.append(el("th", null, h));
+    for (const [h, u] of [["rep"], ["range", "cm"], ["mean", "m/s"], ["peak", "m/s"], ...(R.kg ? [["power", "W"]] : []), ["down", "s"], ["up", "s"], ...(depth ? [["depth", "cm"]] : [])]) {
+      const th = el("th", null, tr(`res.reps.col.${h}`));
+      if (u) th.append(el("span", "u", u));
+      head.append(th);
+    }
     t.append(head);
     for (const r of R.reps) {
-      const tr = el("tr");
-      tr.dataset.rep = r.n;
-      const cells = [String(r.n), (r.rom * 100).toFixed(0), r.mean.toFixed(2), r.peak.toFixed(2), ...(R.kg ? [r.power === undefined ? "–" : r.power.toFixed(0)] : []), r.down.toFixed(2), r.up.toFixed(2)];
-      if (depth) cells.push(r.depth === null || r.depth === undefined ? "–" : `${r.depth >= 0 ? "−" : "+"}${Math.abs(r.depth * 45).toFixed(0)}`);
-      for (const c of cells) tr.append(el("td", null, c));
-      tr.addEventListener("click", () => setCursor(r.begin, true));
-      t.append(tr);
+      const row = el("tr");
+      row.dataset.rep = r.n;
+      const cells = [String(r.n), num(r.rom * 100, 0), num(r.mean, 2), num(r.peak, 2), ...(R.kg ? [r.power === undefined ? "–" : num(r.power, 0)] : []), num(r.down, 2), num(r.up, 2)];
+      if (depth) cells.push(r.depth === null || r.depth === undefined ? "–" : `${r.depth >= 0 ? "−" : "+"}${num(Math.abs(r.depth * 45), 0)}`);
+      const go = el("button", "go", cells.shift()); // the row is tappable; the button gives it a keyboard way in
+      go.type = "button";
+      go.setAttribute("aria-label", tr("res.reps.jump", { n: r.n }));
+      const first = el("td");
+      first.append(go);
+      row.append(first);
+      for (const c of cells) row.append(el("td", null, c));
+      row.addEventListener("click", () => setCursor(r.begin, true));
+      t.append(row);
     }
-    if (depth) { const tr = el("tr"), td = el("td", "n", "Depth: hip crease vs the knee, − below parallel (approx.)"); td.colSpan = 8; td.style.textAlign = "left"; tr.append(td); t.append(tr); }
+    if (depth) { const row = el("tr"), td = el("td", "n", tr("res.reps.depthNote")); td.colSpan = 8; td.style.textAlign = "left"; row.append(td); t.append(row); }
   }
   requestAnimationFrame(() => { for (const b of bar.children) if (b.scrollWidth > b.clientWidth + 1) b.firstChild.textContent = ""; });
 
@@ -410,9 +453,8 @@ function showResults(fresh = false) {
   ul.replaceChildren();
   for (const c of R.checks) {
     const li = el("li");
-    const [icon, word] = STATUS[c.status];
-    const ico = el("span", `ico ${c.status}`, icon);
-    ico.setAttribute("aria-hidden", "true");
+    const word = tr(`status.${c.status}`);
+    const ico = icon(c.status, `ico ${c.status}`);
     const body = el("div");
     const ttl = el("div", "ttl", c.title);
     ttl.append(el("span", null, word));
@@ -428,15 +470,15 @@ function showResults(fresh = false) {
   for (const m of R.metrics) {
     if (m.group !== group) {
       group = m.group;
-      const tr = el("tr"), th = el("th", null, group);
+      const row = el("tr"), th = el("th", null, group);
       th.colSpan = 2;
-      tr.append(th);
-      table.append(tr);
+      row.append(th);
+      table.append(row);
     }
-    const tr = el("tr"), a = el("td", null, m.label);
+    const row = el("tr"), a = el("td", null, m.label);
     if (m.note) a.append(el("span", "n", m.note));
-    tr.append(a, el("td", "v", `${fmtMetric(m)} ${m.unit}`));
-    table.append(tr);
+    row.append(a, el("td", "v", withUnit(fmtMetric(m), m.unit)));
+    table.append(row);
   }
 
   drawCharts();
@@ -451,14 +493,14 @@ function drawCharts() {
   if (S.R.reps) {
     const cur = S.R.repOf[S.cursor] || null;
     S.geoReps = drawReps($("repsChart"), S.R, cur);
-    for (const tr of $("repsTable").querySelectorAll("tr[data-rep]")) tr.classList.toggle("on", +tr.dataset.rep === cur);
+    for (const row of $("repsTable").querySelectorAll("tr[data-rep]")) row.classList.toggle("on", +row.dataset.rep === cur);
   }
   $("rampKey").style.background = rampCss(S.geoPath.stops);
-  $("rampMax").textContent = `${S.geoPath.vTop.toFixed(1)} m/s`;
+  $("rampMax").textContent = `${num(S.geoPath.vTop, 1)} m/s`;
 }
 function hud(i) {
   const R = S.R;
-  $("hud").textContent = `${where(R, i)} · ${R.vy[i].toFixed(2)} m/s · ${R.H[i].toFixed(2)} m`;
+  $("hud").textContent = `${where(R, i)} · ${num(R.vy[i], 2)} m/s · ${num(R.H[i], 2)} m`;
 }
 function setCursor(i, seek) {
   if (!S.R) return;
@@ -491,7 +533,6 @@ function redrawOverlay(t = video.currentTime) {
 
 function bindChart(canvas, hit) {
   const tip = canvas.parentElement.querySelector(".tip");
-  const at = (e) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
   const show = (i, p) => {
     fillTip(tip, S.R, i);
     tip.hidden = false;
@@ -499,9 +540,7 @@ function bindChart(canvas, hit) {
     tip.style.left = `${clamp(p.x + 14 + tw > W ? p.x - 14 - tw : p.x + 14, 0, W - tw)}px`;
     tip.style.top = `${clamp(p.y - 40, 0, canvas.clientHeight - tip.offsetHeight)}px`;
   };
-  const move = (e) => { if (!S.R) return; const p = at(e), i = hit(p); setCursor(i, true); show(i, p); };
-  canvas.addEventListener("pointerdown", move);
-  canvas.addEventListener("pointermove", (e) => { if (e.pointerType === "mouse" || e.buttons) move(e); });
+  scrub(canvas, (p) => { if (!S.R) return; const i = hit(p); setCursor(i, true); show(i, p); }, { hover: true });
   canvas.addEventListener("pointerleave", () => { tip.hidden = true; });
   canvas.addEventListener("pointercancel", () => { tip.hidden = true; });
   canvas.addEventListener("keydown", (e) => {
@@ -514,14 +553,14 @@ bindChart($("pathChart"), (p) => pathHit(S.geoPath, S.R, p.x, p.y));
 bindChart($("speedChart"), (p) => speedHit(S.geoSpeed, p.x));
 
 /* replay */
-function stopPlayback() { if (S.playing) { S.playing = false; video.pause(); } $("btnPlay").textContent = "Play"; }
+function stopPlayback() { if (S.playing) { S.playing = false; video.pause(); } $("btnPlay").textContent = tr("common.play"); }
 async function play() {
   if (!S.R) return;
   const [i0, i1] = span(S.R), tEnd = S.R.tVideo(i1);
   if (video.currentTime >= tEnd - 0.02) await V.seek(video, S.R.tVideo(i0));
   video.playbackRate = S.rate;
   S.playing = true;
-  $("btnPlay").textContent = "Pause";
+  $("btnPlay").textContent = tr("common.pause");
   const frame = (t) => {
     if (!S.playing) return false;
     if (t >= tEnd) { stopPlayback(); return false; }
@@ -540,7 +579,7 @@ async function play() {
   video.play().catch(() => stopPlayback());
 }
 $("btnPlay").addEventListener("click", () => (S.playing ? stopPlayback() : play()));
-video.addEventListener("pause", () => { if (S.mode === "results") { S.playing = false; $("btnPlay").textContent = "Play"; } });
+video.addEventListener("pause", () => { if (S.mode === "results") { S.playing = false; $("btnPlay").textContent = tr("common.play"); } });
 for (const b of document.querySelectorAll("#rates button")) {
   b.addEventListener("click", () => {
     S.rate = +b.dataset.rate;
@@ -556,7 +595,7 @@ let kgTimer = 0;
 $("kg").addEventListener("input", () => { clearTimeout(kgTimer); kgTimer = setTimeout(() => { if (S.mode === "results") showResults(); }, 350); });
 let heightTimer = 0;
 $("heightCm").addEventListener("input", () => { clearTimeout(heightTimer); heightTimer = setTimeout(() => { saveSettings(); if (S.mode === "results") showResults(); }, 350); });
-$("repsChart").addEventListener("pointerdown", (e) => {
+$("repsChart").addEventListener("click", (e) => { // a tap: a scroll that starts on the chart doesn't jump
   if (!S.geoReps) return;
   const x = e.clientX - $("repsChart").getBoundingClientRect().left;
   const c = S.geoReps.cols.find((k) => x >= k.x0 && x < k.x1);
@@ -573,11 +612,12 @@ function download(blob, name) {
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
 }
+// the CSV is data: its stage column stays English (and free of commas) whatever language the app shows
 $("btnCsv").addEventListener("click", () => {
   const R = S.R, rows = [`time_s,forward_cm,height_m,vx_m_s,vy_m_s,speed_m_s,${R.P ? "power_w,force_n," : ""}rep,stage,filled_in`];
   for (let i = 0; i < R.n; i++) {
     const k = R.stageOf[i];
-    rows.push([(R.T[i] - R.T[R.t0i]).toFixed(4), (R.X[i] * 100).toFixed(2), R.H[i].toFixed(4), R.vx[i].toFixed(3), R.vy[i].toFixed(3), R.speed[i].toFixed(3), ...(R.P ? [R.P[i].toFixed(1), R.F[i].toFixed(1)] : []), R.repOf?.[i] || "", k >= 0 ? R.stages[k].name : "", R.gap[i]].join(","));
+    rows.push([(R.T[i] - R.T[R.t0i]).toFixed(4), (R.X[i] * 100).toFixed(2), R.H[i].toFixed(4), R.vx[i].toFixed(3), R.vy[i].toFixed(3), R.speed[i].toFixed(3), ...(R.P ? [R.P[i].toFixed(1), R.F[i].toFixed(1)] : []), R.repOf?.[i] || "", k >= 0 ? en[`stage.${R.stages[k].id}`] : "", R.gap[i]].join(","));
   }
   download(new Blob([rows.join("\n")], { type: "text/csv" }), `${S.name}-bar.csv`);
 });
@@ -639,28 +679,32 @@ async function saveLift(fresh) {
       await Store.put(card, data, isNew ? S.file : null);
       S.entryId = id;
       galleryCount();
+      updateTrim();
     } else await Store.update(id, card, { opts: data.opts });
-    $("resSaved").textContent = "Saved in the gallery, on this phone.";
+    $("resSaved").textContent = tr("res.saved.ok");
     $("btnDelete").hidden = false;
   } catch (e) {
-    $("resSaved").textContent = `Couldn't keep it in the gallery (${e?.message || e}).`;
+    $("resSaved").textContent = tr("res.saved.failed", { error: e?.message || e });
   }
 }
 let saveTimer = 0;
 const queueSave = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveLift(false), 400); };
 
 const GAL = new Gallery(
-  { list: $("galList"), filters: $("galFilters"), summary: $("galSummary"), empty: $("galEmpty"), bar: $("galBar"), barText: $("galBarText"), compare: $("btnGalCompare"), remove: $("btnGalDelete") },
+  { list: $("galList"), filters: $("galFilters"), summary: $("galSummary"), status: $("galStatus"), empty: $("galEmpty"), bar: $("galBar"), barText: $("galBarText"), compare: $("btnGalCompare"), remove: $("btnGalDelete"), trim: $("btnGalTrim") },
   { open: (id) => openSaved(id), compare: (ids) => openCompare(ids) },
 );
 const CMP = (window.__barpathCompare = new Compare({
   videos: $("cmpVideos"), legend: $("cmpLegend"), scrub: $("cmpScrub"), read: $("cmpRead"), play: $("cmpPlay"), prev: $("cmpPrev"), next: $("cmpNext"),
   rates: $("cmpRates"), path: $("cmpPath"), speed: $("cmpSpeed"), table: $("cmpTable"), note: $("cmpNote"),
 }));
+let howtoSet = false;
 async function galleryCount() {
   const n = await GAL.count();
   $("btnGallery").hidden = n === 0;
-  $("btnGallery").textContent = `Gallery · ${n}`;
+  $("btnGallery").textContent = tr("start.galleryCount", { n });
+  // the filming guide: open on the first visit, folded away once there are lifts (Record comes first then)
+  if (!howtoSet) { howtoSet = true; $("howto").open = n === 0; }
 }
 
 /* screens you can go back from with the phone's Back: each gets a history entry, and the one it was opened from
@@ -703,12 +747,48 @@ window.addEventListener("popstate", (e) => {
 for (const id of ["btnGallery", "btnGallery2"]) $(id).addEventListener("click", () => showGallery());
 for (const id of ["btnGalBack", "btnCmpBack"]) $(id).addEventListener("click", () => history.back());
 $("btnDelete").addEventListener("click", async () => {
-  if (!S.entryId || !confirm("Delete this lift from Bar Path's gallery? A video in your phone's Gallery app isn't affected.")) return;
+  if (!S.entryId || !confirm(tr("res.deleteConfirm"))) return;
   await Store.remove(S.entryId).catch(() => {});
   S.entryId = null;
   $("btnDelete").hidden = true;
-  $("resSaved").textContent = "Deleted from the gallery.";
+  hideTrim();
+  $("resSaved").textContent = tr("res.saved.deleted");
   galleryCount();
+});
+
+/* keeping only the analysed part of the saved video (js/clip.js, store.js): offered when it frees at least 5% */
+let trimPlan = null;
+function hideTrim() { trimPlan = null; $("trimRow").hidden = true; }
+async function updateTrim() {
+  hideTrim();
+  const id = S.entryId;
+  if (!id) return;
+  try {
+    const p = await Store.planTrim(id);
+    if (!p || p.card.trimmed || S.entryId !== id || p.r.after > 0.95 * p.r.before) return;
+    trimPlan = p;
+    $("trimInfo").textContent = tr("res.trim.info", { before: mb(p.r.before), after: mb(p.r.after) });
+    $("btnTrim").disabled = false;
+    $("trimRow").hidden = false;
+  } catch { /* not an MP4 (a WebM recording), or no video track: nothing to offer */ }
+}
+$("btnTrim").addEventListener("click", async () => {
+  const p = trimPlan;
+  if (!p || p.card.id !== S.entryId) return;
+  const ask = tr("res.trim.confirm", { before: mb(p.r.before), after: mb(p.r.after) }) + (S.blob ? `\n\n${tr("res.trim.confirmRecorded")}` : "");
+  if (!confirm(ask)) return;
+  $("btnTrim").disabled = true;
+  try {
+    await Store.applyTrim(p);
+    const got = await Store.get(p.card.id);
+    // open it again on the shorter video (its times moved with it); no new history entry
+    await openVideo(new File([got.video], got.card.name, { type: got.video.type || "video/mp4" }), got.card.name, false, got);
+    $("resSaved").textContent = tr("res.trim.done", { size: mb(p.r.after) });
+    galleryCount();
+  } catch (e) {
+    $("trimInfo").textContent = tr("res.trim.failed", { err: e?.message || e });
+    $("btnTrim").disabled = false;
+  }
 });
 
 /* ------------------------------------------------------------------ getting a video */
@@ -722,28 +802,27 @@ $("btnRecord").addEventListener("click", () => $("captureInput").click());
 $("btnCamLevel").addEventListener("click", () => openCam());
 async function openCam() {
   setMode("camera");
-  $("camInfo").textContent = "Opening the camera…";
+  $("camInfo").textContent = tr("camera.opening");
   try {
     S.cam = await Rec.openCamera($("camVideo"));
   } catch (e) {
     setMode("start");
-    $("recordHint").textContent = `Couldn't open the camera here (${e?.message || e}). Record opens the camera app instead.`;
+    $("recordHint").textContent = tr("camera.failed", { error: e?.message || e });
     return;
   }
   const cv = $("camVideo"), st = S.cam.settings;
   Ov.fitViewer($("camViewer"), cv.videoWidth || st.width || 16, cv.videoHeight || st.height || 9);
   const fps = st.frameRate ? Math.round(st.frameRate) : null;
-  $("camInfo").textContent = `${cv.videoWidth}×${cv.videoHeight}${fps ? ` at ${fps} fps` : ""}.` +
-    (fps && fps < 50 ? " The browser gives 30 fps here; for 60 fps, use Record (the camera app)." : " Side-on, whole lift and floor in frame.");
+  $("camInfo").textContent = `${tr(fps ? "camera.infoFps" : "camera.info", { w: cv.videoWidth, h: cv.videoHeight, fps })} ${tr(fps && fps < 50 ? "camera.info.slow" : "camera.info.ok")}`;
   let seen = false;
   S.stopLevel = Rec.watchLevel(({ roll, pitch }) => {
     seen = true;
     const ok = Math.abs(roll) < 1.5 && Math.abs(pitch) < 6;
     $("level").dataset.ok = ok ? "1" : "0";
     $("level").querySelector(".bubble").style.transform = `rotate(${(-roll).toFixed(1)}deg)`;
-    $("levelRead").textContent = ok ? "Level ✓" : `Tilt ${fmtSigned(roll, 1)}° · ${pitch > 0 ? "up" : "down"} ${Math.abs(pitch).toFixed(0)}°`;
+    $("levelRead").textContent = ok ? tr("camera.level.ok") : tr(pitch > 0 ? "camera.level.up" : "camera.level.down", { roll: fmtSigned(roll, 1), pitch: num(Math.abs(pitch), 0) });
   });
-  setTimeout(() => { if (!seen) $("levelRead").textContent = "Level: no motion sensor"; }, 1500);
+  setTimeout(() => { if (!seen) $("levelRead").textContent = tr("camera.level.noSensor"); }, 1500);
 }
 function closeCam() {
   S.stopLevel?.(); S.stopLevel = null;
@@ -752,16 +831,16 @@ function closeCam() {
   clearInterval(S.recTimer);
   $("recBadge").hidden = true;
   const b = $("btnRecToggle");
-  b.dataset.on = "0"; b.textContent = "Start recording";
+  b.dataset.on = "0"; b.textContent = tr("camera.start");
 }
 $("btnRecToggle").addEventListener("click", async () => {
   const b = $("btnRecToggle");
   if (!S.recorder) {
     S.recorder = Rec.startRecording(S.cam.stream);
-    b.dataset.on = "1"; b.textContent = "Stop";
+    b.dataset.on = "1"; b.textContent = tr("common.stop");
     const t0 = performance.now();
     $("recBadge").hidden = false;
-    S.recTimer = setInterval(() => { $("recTime").textContent = ((performance.now() - t0) / 1000).toFixed(1); }, 100);
+    S.recTimer = setInterval(() => { $("recTime").textContent = num((performance.now() - t0) / 1000, 1); }, 100);
   } else {
     b.disabled = true;
     const blob = await S.recorder.stop();
@@ -775,7 +854,7 @@ $("btnCamClose").addEventListener("click", () => { closeCam(); setMode("start");
 /* ------------------------------------------------------------------ settings changes */
 for (const id of ["plateMm", "slowmo"]) $(id).addEventListener("change", () => { saveSettings(); if (S.mode === "results") showResults(); });
 $("facing").addEventListener("change", () => { S.facingOverride = null; if (S.mode === "results") showResults(); });
-$("poseModel").addEventListener("change", () => { saveSettings(); if (S.mode === "results") $("notes").append(el("li", null, "Body tracking changes apply the next time you analyse (Mark again → Analyse).")); });
+$("poseModel").addEventListener("change", () => { saveSettings(); if (S.mode === "results") $("notes").append(note(tr("res.poseChanged"))); });
 
 /* ------------------------------------------------------------------ redraw on resize / theme */
 let rz = 0;

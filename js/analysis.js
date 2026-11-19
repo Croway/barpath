@@ -14,23 +14,31 @@
  * Coordinates: X metres forward (the way the lifter faces; toward the head on a bench), H metres up. For lifts
  * from the floor H is the bar centre's height above the floor (it starts there, at the plate's radius);
  * otherwise it's measured from where the bar started. Scale comes from the plate: a bumper is 450 mm across.
+ *
+ * Texts come from the catalog (i18n.js), in the language set when analyse() runs; names (LIFTS, STAGES, PATH_TYPES)
+ * are looked up when read, so importing this module needs no language yet.
  */
+import { tr, num } from "./i18n.js";
+
+/** { id: its name }, the name read from the catalog each time */
+const names = (prefix, ids) => Object.freeze(Object.defineProperties({}, Object.fromEntries(ids.map((id) => [id, { enumerable: true, get: () => tr(prefix + id) }]))));
+const stage = (id, slot) => ({ get name() { return tr(`stage.${id}`); }, slot });
 
 export const STAGES = {
-  first: { name: "First pull", slot: 1 },
-  pull: { name: "Pull", slot: 1 },
-  transition: { name: "Transition", slot: 2 },
-  second: { name: "Second pull", slot: 3 },
-  turnover: { name: "Turnover", slot: 4 }, // peak speed to peak height: pulling under the still-rising bar
-  catch: { name: "Catch", slot: 5 },       // peak height until the bar stops dropping
-  recovery: { name: "Recovery", slot: 6 },
+  first: stage("first", 1),
+  pull: stage("pull", 1),
+  transition: stage("transition", 2),
+  second: stage("second", 3),
+  turnover: stage("turnover", 4), // peak speed to peak height: pulling under the still-rising bar
+  catch: stage("catch", 5),       // peak height until the bar stops dropping
+  recovery: stage("recovery", 6),
   // rep lifts use the first three slots only (they are validated against each other in any order)
-  up: { name: "Lifting", slot: 1 },
-  down: { name: "Lowering", slot: 2 },
-  pause: { name: "Pause", slot: 3 },
+  up: stage("up", 1),
+  down: stage("down", 2),
+  pause: stage("pause", 3),
 };
 
-export const LIFTS = { snatch: "Snatch", clean: "Clean", deadlift: "Deadlift", squat: "Squat", bench: "Bench press", press: "Overhead press" };
+export const LIFTS = names("lift.", ["snatch", "clean", "deadlift", "squat", "bench", "press"]);
 
 // MediaPipe pose landmark indices
 export const LM = {
@@ -120,14 +128,14 @@ function prepare(samples, opts) {
   const slow = opts.slowmo > 0 ? opts.slowmo : 1;
   const plate = (opts.plateMm || 450) / 1000;
   const good = samples.filter((s) => s.ok);
-  if (good.length < 10 || good.length < 0.3 * samples.length) return { error: "The plate was lost on most frames. Check the circle sits on the plate, and that the plate stays in view." };
+  if (good.length < 10 || good.length < 0.3 * samples.length) return { error: tr("error.plateLost") };
   const tv0 = samples[0].t;
   const real = (tv) => (tv - tv0) / slow;
   const dts = [];
   for (let i = 1; i < samples.length; i++) { const d = real(samples[i].t) - real(samples[i - 1].t); if (d > 1e-5) dts.push(d); }
   const fs = clamp(Math.round(1 / median(dts)), 20, 480);
   const n = Math.floor(real(samples[samples.length - 1].t) * fs) + 1;
-  if (n < 0.5 * fs) return { error: "The clip is too short. Include the whole lift, from the set-up to the finish." };
+  if (n < 0.5 * fs) return { error: tr("error.tooShort") };
   const T = Float64Array.from({ length: n }, (_, i) => i / fs);
   const gt = good.map((s) => real(s.t));
   // 10 Hz keeps the peak of a second pull (within ~3% of a sharp one) while calming tracking noise. Run forwards and
@@ -198,7 +206,7 @@ function bodyAtRest(sig, i0, i1) {
  * not its first move: unracking lifts the bar a little before a squat goes down.
  */
 function recognise(sig, chosen) {
-  if (chosen && LIFTS[chosen]) return { lift: chosen, from: "you", why: "chosen" };
+  if (chosen && LIFTS[chosen]) return { lift: chosen, from: "you", why: tr("why.chosen") };
   const { n, fs, Hr, side, L, poseAt, ys } = sig;
   const h0 = median(Hr.slice(0, Math.max(1, Math.round(0.2 * fs))));
   const iMove = Hr.findIndex((h) => Math.abs(h - h0) > 0.04);
@@ -220,22 +228,23 @@ function recognise(sig, chosen) {
     }
     if (v.length >= 2) topOnBody = median(v);
   }
-  const pull = (where) => {
-    if (topOnBody !== null) return topOnBody < 0.85 ? { lift: "deadlift", from: "body", why: `${where}, finishes at the hips` } : { lift: "olympic", from: "body", why: `${where}, finishes at the shoulders or overhead` };
-    return rise < 0.9 ? { lift: "deadlift", from: "bar", why: `${where}, rises ${Math.round(rise * 100)} cm` } : { lift: "olympic", from: "bar", why: `${where}, rises ${Math.round(rise * 100)} cm` };
+  const pull = (from) => { // from: floor, hips, upFirst
+    const where = tr(`why.where.${from}`);
+    if (topOnBody !== null) return topOnBody < 0.85 ? { lift: "deadlift", from: "body", why: tr("why.finishesHips", { where }) } : { lift: "olympic", from: "body", why: tr("why.finishesHigh", { where }) };
+    return { lift: rise < 0.9 ? "deadlift" : "olympic", from: "bar", why: tr("why.rises", { where, cm: Math.round(rise * 100) }) };
   };
   const body = bodyAtRest(sig, Math.max(0, iMove - Math.round(0.5 * fs)), iMove);
   if (body) {
-    if (body.lying) return { lift: "bench", from: "body", why: "lying down" };
+    if (body.lying) return { lift: "bench", from: "body", why: tr("why.lying") };
     if (body.onBody !== null) {
-      if (body.onBody < 0.45) return pull("from the floor");
-      if (body.onBody > 0.72) return squatty ? { lift: "squat", from: "body", why: "bar on the shoulders, goes down" } : { lift: "press", from: "body", why: "bar at the shoulders, goes up" };
-      return pull("from the hips");
+      if (body.onBody < 0.45) return pull("floor");
+      if (body.onBody > 0.72) return squatty ? { lift: "squat", from: "body", why: tr("why.squatBody") } : { lift: "press", from: "body", why: tr("why.pressBody") };
+      return pull("hips");
     }
   }
   // the bar alone: which way it travels furthest, and how far a pull rises
-  if (squatty) return { lift: "squat", from: "bar", why: "goes down a long way" };
-  const r = pull("goes up first");
+  if (squatty) return { lift: "squat", from: "bar", why: tr("why.squatBar") };
+  const r = pull("upFirst");
   return { ...r, from: "bar" };
 }
 
@@ -249,7 +258,7 @@ export function analyse(samples, opts = {}) {
   if (sig.error) return sig;
   const chosen = opts.lift && opts.lift !== "auto" ? opts.lift : opts.type && opts.type !== "auto" ? opts.type : null;
   const mv = recognise(sig, chosen);
-  if (!mv.lift) return { error: "The bar never moves in this clip. Start just before the lift and run past its end." };
+  if (!mv.lift) return { error: tr("error.neverMoves") };
   const R = mv.lift === "olympic" || mv.lift === "snatch" || mv.lift === "clean"
     ? olympic(sig, opts, mv.lift === "olympic" ? null : mv.lift)
     : reps(sig, opts, mv.lift);
@@ -282,18 +291,18 @@ function addPower(R, kg, fs) {
   const P = filtfilt(deriv(E, fs), fc, fs);
   const mean = (a, i0, i1) => { let s = 0; for (let i = i0; i <= i1; i++) s += a[i]; return s / Math.max(1, i1 - i0 + 1); };
   const W = (w) => `${Math.round(w)}`;
-  const put = (label, value, unit, note) => R.metrics.push({ group: "Power", label, value, unit, note });
+  const put = (label, value, unit, note) => R.metrics.push({ group: tr("group.power"), label, value, unit, note });
   R.P = P; R.F = F; R.kg = kg;
-  put("Load", kg, "kg", "as entered");
+  put(tr("metric.load.label"), kg, "kg", tr("metric.load.note"));
   if (!R.reps) {
     const i0 = R.ev.liftoff, i1 = R.ev.vmax, iP = argmax(P, i0, i1), iF = argmax(F, i0, i1), pull = mean(P, i0, i1);
-    put("Peak power", P[iP], "W", `into the bar, ${((iP - i0) / fs).toFixed(2)} s after lift-off; ${(P[iP] / kg).toFixed(1)} W per kg of bar`);
-    put("Mean power in the pull", pull, "W", "into the bar, lift-off to peak speed");
-    put("Peak force on the bar", F[iF], "N", `approx. (smoothing softens short spikes); ${(F[iF] / (kg * G)).toFixed(1)}× the bar's weight`);
-    put("Bar energy at peak speed", 0.5 * kg * (R.vx[i1] ** 2 + R.vy[i1] ** 2) + kg * G * (R.H[i1] - R.H[i0]), "J", "moving + lifted, from lift-off");
+    put(tr("metric.peakPower.label"), P[iP], "W", tr("metric.peakPower.note", { t: num((iP - i0) / fs, 2), wkg: num(P[iP] / kg, 1) }));
+    put(tr("metric.pullPower.label"), pull, "W", tr("metric.pullPower.note"));
+    put(tr("metric.peakForce.label"), F[iF], "N", tr("metric.peakForce.note", { x: num(F[iF] / (kg * G), 1) }));
+    put(tr("metric.energy.label"), 0.5 * kg * (R.vx[i1] ** 2 + R.vy[i1] ** 2) + kg * G * (R.H[i1] - R.H[i0]), "J", tr("metric.energy.note"));
     R.tiles.push(
-      { label: "Peak power", value: W(P[iP]), unit: "W", note: `into the bar, ${(P[iP] / kg).toFixed(1)} W per kg` },
-      { label: "Pull power", value: W(pull), unit: "W", note: "into the bar, lift-off to peak speed" },
+      { label: tr("tile.peakPower"), value: W(P[iP]), unit: "W", note: tr("tile.peakPower.note", { wkg: num(P[iP] / kg, 1) }) },
+      { label: tr("tile.pullPower"), value: W(pull), unit: "W", note: tr("tile.pullPower.note") },
     );
     return;
   }
@@ -301,25 +310,20 @@ function addPower(R, kg, fs) {
   const done = R.reps.filter((r) => r.power !== undefined);
   if (!done.length) return;
   const best = done.reduce((a, b) => (b.power > a.power ? b : a)), peak = done.reduce((a, b) => (b.peakPower > a.peakPower ? b : a));
-  put("Best mean lifting power", best.power, "W", `rep ${best.n}; mean concentric power into the bar`);
-  put("Peak power", peak.peakPower, "W", `rep ${peak.n}`);
-  put("Mean lifting power, every rep", done.reduce((a, r) => a + r.power, 0) / done.length, "W");
-  if (done.length > 1) put("Power lost, best rep to last", (100 * (best.power - done[done.length - 1].power)) / best.power, "%");
+  put(tr("metric.bestPower.label"), best.power, "W", tr("metric.bestPower.note", { n: best.n }));
+  put(tr("metric.peakPower.label"), peak.peakPower, "W", tr("metric.rep", { n: peak.n }));
+  put(tr("metric.meanPower.label"), done.reduce((a, r) => a + r.power, 0) / done.length, "W");
+  if (done.length > 1) put(tr("metric.powerLoss.label"), (100 * (best.power - done[done.length - 1].power)) / best.power, "%");
   R.tiles.push(
-    { label: "Best mean power", value: W(best.power), unit: "W", note: `lifting, rep ${best.n}` },
-    { label: "Peak power", value: W(peak.peakPower), unit: "W", note: `rep ${peak.n}` },
+    { label: tr("tile.bestPower"), value: W(best.power), unit: "W", note: tr("tile.liftingRep", { n: best.n }) },
+    { label: tr("tile.peakPower"), value: W(peak.peakPower), unit: "W", note: tr("tile.rep", { n: peak.n }) },
   );
 }
 
 /* ------------------------------------------------------------------ snatch and clean */
 /** bar path types (Vorobyev 1978, Hiskia 1997, as used by Cunanan 2020), with how common each was among the
  * lifters at the 2015 Worlds. The reference is a vertical line through the bar at lift-off. */
-export const PATH_TYPES = {
-  1: "toward you, away across the start line, back toward you (13% of lifts at a Worlds)",
-  2: "toward you, away, back toward you, never crossing the start line (28% at a Worlds)",
-  3: "away first, then toward you, away, back toward you (53% at a Worlds: the most common)",
-  4: "more back and forth than the other types (6% at a Worlds)",
-};
+export const PATH_TYPES = names("pathType.", ["1", "2", "3", "4"]);
 /** the bar's back-and-forth from i0 to i1 as legs toward the lifter (T) and away (A), ignoring wobbles under h
  * metres, and the bar path type it makes (null when it fits none) */
 export function pathType(X, i0, i1, h = 0.01) {
@@ -345,7 +349,7 @@ function olympic(sig, opts, forced) {
   let vy = deriv(H, fs);
   const H0 = plate / 2;
   const i3 = H.findIndex((h) => h > H0 + 0.03);
-  if (i3 < 0) return { error: "The bar never leaves the floor in this clip. Start where the bar is on the floor and run past the lift." };
+  if (i3 < 0) return { error: tr("error.neverLeavesFloor") };
   let iLift = i3;
   while (iLift > 0 && vy[iLift - 1] > 0.05) iLift--;
   const rest = [Math.max(0, iLift - Math.round(0.25 * fs)), iLift + 1];
@@ -354,7 +358,7 @@ function olympic(sig, opts, forced) {
   const Xraw = Xr.map((v) => v - xRest);
   vy = deriv(H, fs);
   const iV = argmax(vy, iLift, Math.min(n - 1, iLift + Math.round(1.6 * fs)));
-  if (vy[iV] < 0.3) return { error: "No lift found: the bar never moves fast. If the video is slow motion, set the slow-motion factor." };
+  if (vy[iV] < 0.3) return { error: tr("error.neverFast") };
   // After peak speed the bar slows while the lifter pulls under it. Usually it then drops onto the lifter: peak
   // height where it stops rising, the catch at its lowest. Sometimes it's met on the way up (a high power catch):
   // it only slows and the stand-up carries it on up. Then peak and catch are the moment it was slowest.
@@ -533,76 +537,73 @@ function olympic(sig, opts, forced) {
   const sn = type === "snatch"; // the published norms below are for the snatch
 
   const m = [];
-  const put = (group, label, value, unit, note, extra) => m.push({ group, label, value, unit, note, ...extra });
-  put("Bar", "Peak bar speed", vy[iV], "m/s", `at ${((iV - iLift) / fs).toFixed(2)} s after lift-off, ${H[iV].toFixed(2)} m up${sn ? "; elite snatches at a max: about 1.8–1.9, faster when lighter" : ""}`);
-  put("Bar", "Peak bar height", H[iPeak], "m", "bar centre above the floor");
-  if (heightM) put("Bar", "Peak bar height, share of your height", (100 * H[iPeak]) / heightM, "%", sn ? "elite snatches: about 62–70%" : undefined);
-  put("Bar", "Catch height", H[iCatch], "m", metRising ? "met on the way up: where the bar was slowest" : "where the bar stops dropping after its peak");
-  put("Bar", "Drop under the bar", (H[iPeak] - H[iCatch]) * 100, "cm", metRising ? "none: the bar never came down" : `peak height to catch height${sn ? "; elite snatches: about 14–17 cm" : ""}`);
-  put("Bar", "Standing height", H[iStand], "m", type === "snatch" ? "bar overhead" : "bar on the shoulders");
-  if (transLoss !== null) put("Bar", "Speed lost in the transition", transLoss, "m/s", `found from the ${splitBy}`);
-  put("Bar path", "Back toward you in the pull", -minBack.v * 100, "cm", `furthest back before peak speed${sn ? "; elite: about 4–7 cm" : ""}`);
-  put("Bar path", "Angle back off the floor", theta1, "°", `start to the furthest-back point, from vertical${sn ? "; elite: about 5–10°" : ""}`);
-  put("Bar path", "Swing out in front", swing * 100, "cm", `furthest back to furthest forward${sn ? "; elite: about 6 cm" : ""}`);
-  put("Bar path", "Loop back to the catch", loop * 100, "cm", `furthest forward to the catch${sn ? "; elite: about 10 cm" : ""}`);
-  put("Bar path", "Catch vs start", X[iCatch] * 100, "cm", `+ forward, − back, from where the bar left the floor${sn ? "; elite: about 10 cm back" : ""}`);
-  if (path.type) put("Bar path", "Bar path type", path.type, "", PATH_TYPES[path.type], { category: true });
-  stages.forEach((s) => put("Timing", s.name, s.dur, "s"));
-  put("Timing", "Lift-off to peak speed", (iV - iLift) / fs, "s");
-  put("Timing", "Peak speed to catch", (iCatch - iV) / fs, "s");
+  const put = (group, id, value, unit, note, extra) => m.push({ group: tr(`group.${group}`), label: tr(`metric.${id}.label`), value, unit, note, ...extra });
+  const elite = (id, vars) => tr(`metric.${id}.note${sn ? "Snatch" : ""}`, vars); // a snatch's note adds the elite figures
+  put("bar", "peakSpeed", vy[iV], "m/s", elite("peakSpeed", { t: num((iV - iLift) / fs, 2), h: num(H[iV], 2) }));
+  put("bar", "peakHeight", H[iPeak], "m", tr("metric.peakHeight.note"));
+  if (heightM) put("bar", "peakHeightShare", (100 * H[iPeak]) / heightM, "%", sn ? tr("metric.peakHeightShare.noteSnatch") : undefined);
+  put("bar", "catchHeight", H[iCatch], "m", tr(metRising ? "metric.catchHeight.noteRising" : "metric.catchHeight.note"));
+  put("bar", "drop", (H[iPeak] - H[iCatch]) * 100, "cm", metRising ? tr("metric.drop.noteRising") : elite("drop"));
+  put("bar", "standHeight", H[iStand], "m", tr(type === "snatch" ? "metric.standHeight.noteOverhead" : "metric.standHeight.noteShoulders"));
+  if (transLoss !== null) put("bar", "transitionLoss", transLoss, "m/s", tr(splitBy === "knees" ? "metric.transitionLoss.noteKnees" : "metric.transitionLoss.noteSpeed"));
+  put("barPath", "backInPull", -minBack.v * 100, "cm", elite("backInPull"));
+  put("barPath", "angleOff", theta1, "°", elite("angleOff"));
+  put("barPath", "swing", swing * 100, "cm", elite("swing"));
+  put("barPath", "loop", loop * 100, "cm", elite("loop"));
+  put("barPath", "catchVsStart", X[iCatch] * 100, "cm", elite("catchVsStart"));
+  if (path.type) put("barPath", "pathType", path.type, "", PATH_TYPES[path.type], { category: true });
+  stages.forEach((s) => m.push({ group: tr("group.timing"), label: s.name, value: s.dur, unit: "s", note: undefined }));
+  put("timing", "liftoffToPeak", (iV - iLift) / fs, "s");
+  put("timing", "peakToCatch", (iCatch - iV) / fs, "s");
   if (knee) {
     // angles from one camera's 2D body landmarks: approximate (even a 12-camera markerless system differs from
     // markers by ~14° in the sagittal plane, Thiele 2024). The elite figures are Harbili 2012's (69 kg, Worlds).
-    const ap = "approx., one camera";
-    put("Body", "Knee angle at lift-off", knee[iLift], "°", `180° is straight; ${ap}${sn ? "; elite: about 70°" : ""}`);
-    put("Body", "Hip angle at lift-off", hipA[iLift], "°", ap);
+    const ap = tr("metric.approx");
+    put("body", "kneeLiftoff", knee[iLift], "°", elite("kneeLiftoff"));
+    put("body", "hipLiftoff", hipA[iLift], "°", ap);
     if (splitBy === "knees") {
-      put("Body", "Knee angle, end of first pull", knee[iFirst], "°", `${ap}${sn ? "; elite: about 135–147°" : ""}`);
-      put("Body", "Knees bend again in the transition", knee[iFirst] - knee[iTrans], "°", `${ap}${sn ? "; elite: about 7–12°" : ""}`);
+      put("body", "kneeFirst", knee[iFirst], "°", sn ? tr("metric.kneeFirst.noteSnatch") : ap);
+      put("body", "kneeRebend", knee[iFirst] - knee[iTrans], "°", sn ? tr("metric.kneeRebend.noteSnatch") : ap);
     }
-    put("Body", "Most knee extension", Math.max(...knee.slice(iLift, iCatch + 1)), "°", `around the second pull; ${ap}${sn ? "; elite: about 165–170°" : ""}`);
-    put("Body", "Most hip extension", Math.max(...hipA.slice(iLift, iCatch + 1)), "°", `${ap}${sn ? "; elite: past straight, about 190°" : ""}`);
+    put("body", "kneeMax", Math.max(...knee.slice(iLift, iCatch + 1)), "°", elite("kneeMax"));
+    put("body", "hipMax", Math.max(...hipA.slice(iLift, iCatch + 1)), "°", sn ? tr("metric.hipMax.noteSnatch") : ap);
   }
   if (jerk) {
-    put("Jerk", "Dip depth", jerk.dip * 100, "cm");
-    if (heightM) put("Jerk", "Dip depth, share of your height", (100 * jerk.dip) / heightM, "%", "elite: about 10–13%");
-    put("Jerk", "Dip time", jerk.dipTime, "s");
-    put("Jerk", "Dip peak speed", jerk.dipSpeed, "m/s", "fastest down in the dip");
-    put("Jerk", "Drive peak speed", jerk.drive, "m/s", "1.4 or more is called desirable");
-    if (jerk.dipSpeed > 0.1) put("Jerk", "Drive vs dip speed", jerk.drive / jerk.dipSpeed, "×", "about 1.7–2.0 is called optimal");
-    put("Jerk", "Drop under the bar", jerk.drop * 100, "cm");
+    put("jerk", "jerkDip", jerk.dip * 100, "cm");
+    if (heightM) put("jerk", "jerkDipShare", (100 * jerk.dip) / heightM, "%", tr("metric.jerkDipShare.note"));
+    put("jerk", "jerkDipTime", jerk.dipTime, "s");
+    put("jerk", "jerkDipSpeed", jerk.dipSpeed, "m/s", tr("metric.jerkDipSpeed.note"));
+    put("jerk", "jerkDrive", jerk.drive, "m/s", tr("metric.jerkDrive.note"));
+    if (jerk.dipSpeed > 0.1) put("jerk", "jerkRatio", jerk.drive / jerk.dipSpeed, "×", tr("metric.jerkRatio.note"));
+    put("jerk", "jerkDrop", jerk.drop * 100, "cm");
   }
 
   /* checks: starting thresholds, meant to be tuned with a coach. Elite figures: Cunanan 2020 (2015 Worlds) and
    * Nagao 2019 (snatch). */
   const checks = [];
-  const chk = (title, status, text) => checks.push({ title, status, text });
+  const chk = (id, status, text) => checks.push({ title: tr(`check.${id}.title`), status, text });
   const xk = xAtKnee * 100;
-  chk("Off the floor", xk <= 1 ? "good" : xk <= 4 ? "warning" : "serious",
-    xk <= -2 ? `The bar comes back toward you as it leaves the floor (${fmtSigned(xk)} cm by the knees).`
-      : xk <= 1 ? `The bar goes about straight up off the floor (${fmtSigned(xk)} cm by the knees). Elite lifters bring it back 4–7 cm.`
-        : `The bar drifts away from you off the floor (${fmtSigned(xk)} cm by the knees). Sweep it back in.`);
+  chk("offFloor", xk <= 1 ? "good" : xk <= 4 ? "warning" : "serious",
+    tr(xk <= -2 ? "check.offFloor.back" : xk <= 1 ? "check.offFloor.straight" : "check.offFloor.away", { x: fmtSigned(xk) }));
   const sw = swing * 100;
-  chk("Second pull", sw <= 8 ? "good" : sw <= 14 ? "warning" : "serious",
-    sw <= 8 ? `The bar stays close: it swings ${sw.toFixed(0)} cm out in front (elite lifters: about 6 cm).` : `The bar loops ${sw.toFixed(0)} cm out in front (elite lifters: about 6 cm). The hips may be pushing it away instead of the bar staying close.`);
+  chk("secondPull", sw <= 8 ? "good" : sw <= 14 ? "warning" : "serious", tr(sw <= 8 ? "check.secondPull.good" : "check.secondPull.loop", { cm: num(sw, 0) }));
   if (transLoss !== null) {
-    chk("Transition", transLoss <= 0.05 ? "good" : transLoss <= 0.15 ? "warning" : "serious",
-      transLoss <= 0.05 ? "The bar keeps its speed while the knees come under it, as it does for most elite lifters." : `The bar slows by ${transLoss.toFixed(2)} m/s while the knees come under it. In most elite lifters it keeps speeding up here.`);
+    chk("transition", transLoss <= 0.05 ? "good" : transLoss <= 0.15 ? "warning" : "serious",
+      transLoss <= 0.05 ? tr("check.transition.good") : tr("check.transition.slows", { v: num(transLoss, 2) }));
   }
   // elite lifters catch the bar about 10 cm behind where it started; most misses are lost in front
   const xc = X[iCatch] * 100;
-  chk("Catch position", xc <= 0.5 ? "good" : xc <= 5 ? "warning" : "serious",
-    xc <= 0.5 ? `You catch the bar ${xc < -0.5 ? `${(-xc).toFixed(0)} cm behind` : "over"} where it started (elite lifters: about 10 cm behind).`
-      : xc <= 5 ? `You catch the bar ${xc.toFixed(0)} cm in front of where it started. Elite lifters catch it about 10 cm behind; most misses are lost in front.`
-        : `You catch the bar ${xc.toFixed(0)} cm in front of where it started: jumping forward to chase it. Elite lifters catch it about 10 cm behind.`);
+  chk("catch", xc <= 0.5 ? "good" : xc <= 5 ? "warning" : "serious",
+    xc <= 0.5 ? (xc < -0.5 ? tr("check.catch.behind", { cm: num(-xc, 0) }) : tr("check.catch.over"))
+      : tr(xc <= 5 ? "check.catch.front" : "check.catch.chasing", { cm: num(xc, 0) }));
 
   const notes = [];
-  if (vy[iV] < 0.9) notes.push("Peak bar speed is low for a snatch or clean. If the video is slowed down, set the slow-motion factor.");
-  if (vy[iV] > 3.2) notes.push("Peak bar speed is very high. Check the slow-motion factor and the plate size.");
-  if (fs < 50) notes.push(`Filmed at ${fs} fps: peak bar speed reads about 4% low, peak force and power more. 60 fps is better.`);
+  if (vy[iV] < 0.9) notes.push(tr("note.slowSpeed"));
+  if (vy[iV] > 3.2) notes.push(tr("note.fastSpeed"));
+  if (fs < 50) notes.push(tr("note.lowFps", { fps: fs }));
   const gapPull = gap.slice(iLift, iStand + 1).reduce((a, b) => a + b, 0) / fs;
-  if (gapPull > 0.1) notes.push(`The plate was lost for ${gapPull.toFixed(2)} s during the lift; values there are filled in.`);
-  if (sizeChange > 0.12) notes.push(`The plate's size on screen changed by ${Math.round(100 * sizeChange)}% during the lift, so the camera was close or tilted. The app corrects for it frame by frame, but heights are approximate. Next time film from further back with the phone level.`);
+  if (gapPull > 0.1) notes.push(tr("note.lostLift", { s: num(gapPull, 2) }));
+  if (sizeChange > 0.12) notes.push(tr("note.sizeLift", { pct: Math.round(100 * sizeChange) }));
 
   const i0 = Math.max(0, iLift - Math.round(0.2 * fs));
   const i1 = Math.min(n - 1, jerk ? jerk.iCatch + Math.round(0.6 * fs) : iStand + Math.round(0.25 * fs));
@@ -611,36 +612,32 @@ function olympic(sig, opts, forced) {
     facing, facingFrom, typeFrom, squat, catchFrom, splitBy, vmax: vy[iV],
     t0i: iLift, span: [i0, i1],
     marks: [
-      { i: iLift, name: "Lift-off", side: "right" }, { i: iV, name: "Peak speed", side: "left" },
-      ...(iPeak !== iCatch ? [{ i: iPeak, name: "Peak height", side: "right" }] : []), { i: iCatch, name: "Catch", side: "right" },
+      { i: iLift, name: tr("mark.liftoff"), side: "right" }, { i: iV, name: tr("mark.peakSpeed"), side: "left" },
+      ...(iPeak !== iCatch ? [{ i: iPeak, name: tr("mark.peakHeight"), side: "right" }] : []), { i: iCatch, name: tr("mark.catch"), side: "right" },
     ],
     tiles: [
-      { label: "Peak bar speed", value: vy[iV].toFixed(2), unit: "m/s", note: `${H[iV].toFixed(2)} m up` },
-      { label: "Peak height", value: H[iPeak].toFixed(2), unit: "m", note: "bar centre, from the floor" },
-      { label: "Drop under the bar", value: ((H[iPeak] - H[iCatch]) * 100).toFixed(0), unit: "cm", note: `caught at ${H[iCatch].toFixed(2)} m` },
-      { label: "Catch vs start", value: fmtSigned(xc, 0), unit: "cm", note: xc > 0.5 ? "in front of the start" : xc < -0.5 ? "behind the start" : "over the start" },
+      { label: tr("tile.peakSpeed"), value: num(vy[iV], 2), unit: "m/s", note: tr("tile.peakSpeed.note", { h: num(H[iV], 2) }) },
+      { label: tr("tile.peakHeight"), value: num(H[iPeak], 2), unit: "m", note: tr("tile.peakHeight.note") },
+      { label: tr("tile.drop"), value: num((H[iPeak] - H[iCatch]) * 100, 0), unit: "cm", note: tr("tile.drop.note", { h: num(H[iCatch], 2) }) },
+      { label: tr("tile.catchVsStart"), value: fmtSigned(xc, 0), unit: "cm", note: tr(xc > 0.5 ? "tile.catchVsStart.front" : xc < -0.5 ? "tile.catchVsStart.behind" : "tile.catchVsStart.over") },
     ],
-    axis: { x: ["← back", "forward →"], h: "m from the floor", t: "s from lift-off" },
-    title: `${type === "snatch" ? "Snatch" : "Clean"} · ${squat ? "squat" : "power"} catch${jerk ? ` · ${jerk.split === null ? "" : jerk.split ? "split " : "power "}jerk` : ""}`,
+    axis: { x: [tr("axis.x.back"), tr("axis.x.forward")], h: tr("axis.h.floor"), t: tr("axis.t.liftoff") },
+    // the parts joined by " · " (the gallery splits a title there)
+    title: [LIFTS[type], tr(squat ? "title.catch.squat" : "title.catch.power"), ...(jerk ? [tr(jerk.split === null ? "title.jerk" : jerk.split ? "title.jerk.split" : "title.jerk.power")] : [])].join(" · "),
   };
 }
 
 /* ------------------------------------------------------------------ rep lifts: squat, bench, deadlift, press */
-const REP = {
-  squat: { dir: -1, turn: "Bottom", floor: false },
-  bench: { dir: -1, turn: "Chest", floor: false },
-  deadlift: { dir: 1, turn: "Lockout", floor: true },
-  press: { dir: 1, turn: "Lockout", floor: false },
+const REP = { // turn: the first rep's turning point, marked on the path (mark.<turn>)
+  squat: { dir: -1, turn: "bottom", floor: false },
+  bench: { dir: -1, turn: "chest", floor: false },
+  deadlift: { dir: 1, turn: "lockout", floor: true },
+  press: { dir: 1, turn: "lockout", floor: false },
 };
 const THIGH_CM = 45; // a typical thigh, to put squat depth (measured in thigh lengths) into rough centimetres
 /** mean lifting speed at a 1-rep max (García-Ramos 2023's pooled figures; deadlift down to 0.14 in powerlifters,
- * Helms 2017: stronger lifters grind slower) */
-const AT_MAX = {
-  squat: { hi: 0.31, text: "about 0.3 m/s" },
-  deadlift: { hi: 0.32, text: "about 0.15–0.3 m/s" },
-  bench: { hi: 0.18, text: "about 0.18 m/s" },
-  press: { hi: 0.19, text: "about 0.19 m/s" },
-};
+ * Helms 2017: stronger lifters grind slower); said as atMax.<lift> */
+const AT_MAX = { squat: { hi: 0.31 }, deadlift: { hi: 0.32 }, bench: { hi: 0.18 }, press: { hi: 0.19 } };
 
 /** a dip in lifting speed between two speed peaks: where the lift nearly stalls */
 function stickingPoint(vy, u0, u1) {
@@ -661,7 +658,7 @@ function reps(sig, opts, lift) {
   const { dir, turn, floor } = REP[lift];
   const h0 = median(Hr.slice(0, Math.max(1, Math.round(0.2 * fs))));
   const iMove = Hr.findIndex((h) => Math.abs(h - h0) > 0.04);
-  if (iMove < 0) return { error: "The bar never moves in this clip. Start just before the first rep and run past the last one." };
+  if (iMove < 0) return { error: tr("error.repsNeverMove") };
   // rest: where the bar sat before it first moved; deadlift heights are from the floor, others from the rest
   const rest = [Math.max(0, iMove - Math.round(0.3 * fs)), Math.max(1, iMove - Math.round(0.05 * fs))];
   const hRest = median(Hr.slice(...rest)), xRest = median(Xr.slice(...rest));
@@ -670,7 +667,7 @@ function reps(sig, opts, lift) {
   const s = Hr.map((v) => (v - hRest) * dir); // distance travelled the way the rep starts
   let smax = 0;
   for (let i = 0; i < n; i++) smax = Math.max(smax, s[i]);
-  if (smax < 0.08) return { error: `The bar only moves ${Math.round(smax * 100)} cm the way a ${LIFTS[lift].toLowerCase()} starts. If that's not the lift, pick it under Lift.` };
+  if (smax < 0.08) return { error: tr("error.repsTooSmall", { cm: Math.round(smax * 100), lift: tr(`lift.lc.${lift}`) }) };
 
   /* which way the lifter faces (toward the head, on a bench) */
   let facing = opts.facing === 1 || opts.facing === -1 ? opts.facing : 0, facingFrom = "you";
@@ -792,7 +789,7 @@ function reps(sig, opts, lift) {
     }
     R.push(r);
   }
-  if (!R.length) return { error: `No ${LIFTS[lift].toLowerCase()} reps found. If that's not the lift, pick it under Lift.` };
+  if (!R.length) return { error: tr("error.noReps", { lift: tr(`lift.lc.${lift}`) }) };
 
   /* the set */
   const done = R.filter((r) => r.done);
@@ -800,7 +797,7 @@ function reps(sig, opts, lift) {
   const best = Math.max(...means), bestRep = (done.length ? done : R)[means.indexOf(best)].n, last = means[means.length - 1];
   const loss = means.length >= 2 ? (best - last) / best : null;
   const avg = (k) => R.reduce((a, r) => a + (r[k] ?? 0), 0) / R.length;
-  const variant = lift === "press" && R.some((r) => r.dip > 0.04 && r.peak > 1.0) ? "push press / jerk" : null;
+  const variant = lift === "press" && R.some((r) => r.dip > 0.04 && r.peak > 1.0) ? tr("variant.pushPress") : null;
   const sd = (a) => { const m = a.reduce((x, y) => x + y, 0) / a.length; return Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / a.length); };
 
   const stages = [], stageOf = new Int8Array(n).fill(-1), repOf = new Int16Array(n);
@@ -815,138 +812,134 @@ function reps(sig, opts, lift) {
 
   /* measurements */
   const m = [];
-  const put = (group, label, value, unit, note) => m.push({ group, label, value, unit, note });
-  put("Set", "Reps", R.length, "", done.length < R.length ? `${R.length - done.length} not finished` : undefined);
-  put("Set", "Best mean lifting speed", best, "m/s", `rep ${bestRep}`);
-  const mvt = variant ? null : AT_MAX[lift];
-  put("Set", "Last rep mean lifting speed", last, "m/s", mvt ? `a 1-rep max typically moves at ${mvt.text}` : undefined);
-  if (loss !== null) put("Set", "Velocity loss", loss * 100, "%", "best rep to last rep");
-  put("Set", "Range of motion", avg("rom") * 100, "cm", R.length > 1 ? `${Math.round(Math.min(...R.map((r) => r.rom)) * 100)}–${Math.round(Math.max(...R.map((r) => r.rom)) * 100)} cm across reps` : undefined);
-  put("Tempo", "Lowering", avg("down"), "s", "average per rep");
-  put("Tempo", lift === "deadlift" || lift === "press" ? "Pause at the top" : "Pause at the bottom", avg("pause"), "s", "average per rep");
-  put("Tempo", "Lifting", avg("up"), "s", "average per rep");
-  put("Bar path", "Wander while lifting", Math.max(...R.map((r) => r.drift)) * 100, "cm", "most front-to-back movement in a rep");
+  const put = (group, id, value, unit, note) => m.push({ group: tr(`group.${group}`), label: tr(`metric.${id}.label`), value, unit, note });
+  put("set", "reps", R.length, "", done.length < R.length ? tr("metric.reps.note", { n: R.length - done.length }) : undefined);
+  put("set", "bestSpeed", best, "m/s", tr("metric.rep", { n: bestRep }));
+  const mvt = variant ? null : AT_MAX[lift], atMax = mvt ? tr(`atMax.${lift}`) : null;
+  put("set", "lastSpeed", last, "m/s", mvt ? tr("metric.lastSpeed.note", { atMax }) : undefined);
+  if (loss !== null) put("set", "velocityLoss", loss * 100, "%", tr("metric.velocityLoss.note"));
+  put("set", "rom", avg("rom") * 100, "cm", R.length > 1 ? tr("metric.rom.note", { min: Math.round(Math.min(...R.map((r) => r.rom)) * 100), max: Math.round(Math.max(...R.map((r) => r.rom)) * 100) }) : undefined);
+  put("tempo", "lowering", avg("down"), "s", tr("metric.perRep"));
+  put("tempo", lift === "deadlift" || lift === "press" ? "pauseTop" : "pauseBottom", avg("pause"), "s", tr("metric.perRep"));
+  put("tempo", "lifting", avg("up"), "s", tr("metric.perRep"));
+  put("barPath", "wander", Math.max(...R.map((r) => r.drift)) * 100, "cm", tr("metric.wander.note"));
   if (lift === "bench") {
-    put("Bar path", "Touch to lockout", avg("shift") * 100, "cm", "+ toward your head (the J-curve)");
-    if (R.length > 1) put("Bar path", "Touch point spread", sd(R.map((r) => r.touch)) * 100, "cm", "how much the touch point moves between reps");
+    put("barPath", "touchToLockout", avg("shift") * 100, "cm", tr("metric.touchToLockout.note"));
+    if (R.length > 1) put("barPath", "touchSpread", sd(R.map((r) => r.touch)) * 100, "cm", tr("metric.touchSpread.note"));
   }
   const sticks = R.filter((r) => r.sticking !== null);
   if (sticks.length) {
     const r = sticks.reduce((a, b) => (vy[b.sticking] < vy[a.sticking] ? b : a));
-    put("Bar", "Sticking point", Math.abs(H[r.sticking] - H[r.u0]) * 100, "cm", `above the ${dir < 0 ? "bottom" : "start"} on rep ${r.n}, at ${vy[r.sticking].toFixed(2)} m/s`);
+    put("bar", "sticking", Math.abs(H[r.sticking] - H[r.u0]) * 100, "cm", tr(dir < 0 ? "metric.sticking.noteBottom" : "metric.sticking.noteStart", { n: r.n, v: num(vy[r.sticking], 2) }));
   }
   if (variant) {
     const r = R.reduce((a, b) => (b.dip > a.dip ? b : a));
-    put("Bar", "Dip depth", r.dip * 100, "cm", `rep ${r.n}`);
-    put("Bar", "Drive peak speed", Math.max(...R.map((q) => q.peak)), "m/s");
+    put("bar", "pressDip", r.dip * 100, "cm", tr("metric.rep", { n: r.n }));
+    put("bar", "pressDrive", Math.max(...R.map((q) => q.peak)), "m/s");
   }
   const withK = (k) => R.filter((r) => r[k] !== null && r[k] !== undefined && Number.isFinite(r[k]));
   if (lift === "squat" && withK("depth").length) {
     const sh = withK("depth").reduce((a, b) => (b.depth < a.depth ? b : a));
-    put("Body", "Shallowest rep", sh.depth * THIGH_CM, "cm", `rep ${sh.n}: hip crease ${sh.depth >= 0 ? "below" : "above"} the knee (approx.)`);
+    put("body", "shallowest", sh.depth * THIGH_CM, "cm", tr(sh.depth >= 0 ? "metric.shallowest.noteBelow" : "metric.shallowest.noteAbove", { n: sh.n }));
   }
   // angles from one camera's 2D body landmarks are approximate; the changes within a rep (chest drop, hips first)
   // hold up better than the absolute angles, as a constant error cancels
-  const ap = "approx., one camera";
-  if (lift === "squat" && withK("chestDrop").length) put("Body", "Chest drop out of the bottom", Math.max(...withK("chestDrop").map((r) => r.chestDrop)), "°", `extra forward lean in the first third of the way up; ${ap}`);
-  if (lift === "deadlift" && withK("hipsFirst").length) put("Body", "Hips rising first", Math.max(...withK("hipsFirst").map((r) => r.hipsFirst)), "°", `extra forward lean in the first third of the pull; ${ap}`);
-  if (lift === "deadlift" && withK("hipLock").length) put("Body", "Hip angle at lockout", Math.min(...withK("hipLock").map((r) => r.hipLock)), "°", `180° is straight; least locked-out rep; ${ap}`);
-  if (lift === "press" && withK("elbowTop").length) put("Body", "Elbow angle overhead", Math.min(...withK("elbowTop").map((r) => r.elbowTop)), "°", `180° is straight; least locked-out rep; ${ap}`);
-  if (lift === "press" && withK("leanBack").length) put("Body", "Lean back while pressing", Math.max(...withK("leanBack").map((r) => r.leanBack)), "°", ap);
+  if (lift === "squat" && withK("chestDrop").length) put("body", "chestDrop", Math.max(...withK("chestDrop").map((r) => r.chestDrop)), "°", tr("metric.chestDrop.note"));
+  if (lift === "deadlift" && withK("hipsFirst").length) put("body", "hipsFirst", Math.max(...withK("hipsFirst").map((r) => r.hipsFirst)), "°", tr("metric.hipsFirst.note"));
+  if (lift === "deadlift" && withK("hipLock").length) put("body", "hipLock", Math.min(...withK("hipLock").map((r) => r.hipLock)), "°", tr("metric.hipLock.note"));
+  if (lift === "press" && withK("elbowTop").length) put("body", "elbowTop", Math.min(...withK("elbowTop").map((r) => r.elbowTop)), "°", tr("metric.elbowTop.note"));
+  if (lift === "press" && withK("leanBack").length) put("body", "leanBack", Math.max(...withK("leanBack").map((r) => r.leanBack)), "°", tr("metric.approx"));
 
   /* checks: starting thresholds, meant to be tuned with a coach */
   const checks = [];
-  const chk = (title, status, text) => checks.push({ title, status, text });
+  const chk = (id, status, text) => checks.push({ title: tr(`check.${id}.title`), status, text });
   const pct = (v) => Math.round(v * 100);
   // Pareja-Blanco 2017: sets stopped at 20% velocity loss built as much strength as sets taken to 40%, with fewer
   // reps; the 40% sets built more muscle, and more fatigue
   if (loss !== null) {
-    chk("Velocity loss", loss <= 0.2 ? "good" : loss <= 0.4 ? "warning" : "serious",
-      `The last rep was ${pct(loss)}% slower than the best (${best.toFixed(2)} → ${last.toFixed(2)} m/s). ` +
-      (loss <= 0.2 ? "Plenty left: stopping strength sets around 20% builds as much strength as going on to 40%, with fewer reps."
-        : loss <= 0.4 ? "Past the ~20% where strength sets usually stop. Going on toward 40% adds muscle and fatigue, not strength."
-          : "A big slowdown: lots of fatigue. Fine for muscle-building sets; stop around 20% when training for strength."));
+    chk("velocityLoss", loss <= 0.2 ? "good" : loss <= 0.4 ? "warning" : "serious",
+      tr(loss <= 0.2 ? "check.velocityLoss.low" : loss <= 0.4 ? "check.velocityLoss.mid" : "check.velocityLoss.high", { pct: pct(loss), best: num(best, 2), last: num(last, 2) }));
   }
   const worst = (k, cmp = (a, b) => b > a) => { const w = withK(k); return w.length ? w.reduce((a, b) => (cmp(a[k], b[k]) ? b : a)) : null; };
   if (lift === "squat") {
     const sh = worst("depth", (a, b) => b < a);
     if (sh) {
       const cm = Math.abs(sh.depth) * THIGH_CM;
-      chk("Depth", sh.depth >= 0.02 ? "good" : sh.depth >= -0.08 ? "warning" : "serious",
-        sh.depth >= 0.02 ? `Every rep goes below parallel: hip crease under the knee${R.length > 1 ? `, shallowest on rep ${sh.n}` : ""}.`
-          : sh.depth >= -0.08 ? `Rep ${sh.n} stops at about parallel. Sit a few centimetres deeper to make it count.`
-            : `Rep ${sh.n} stops about ${cm.toFixed(0)} cm above parallel. Sit deeper, or lighten the load to reach depth.`);
+      chk("depth", sh.depth >= 0.02 ? "good" : sh.depth >= -0.08 ? "warning" : "serious",
+        sh.depth >= 0.02 ? (R.length > 1 ? tr("check.depth.good", { n: sh.n }) : tr("check.depth.goodOne"))
+          : sh.depth >= -0.08 ? tr("check.depth.parallel", { n: sh.n })
+            : tr("check.depth.high", { n: sh.n, cm: num(cm, 0) }));
     }
     const cd = worst("chestDrop");
-    if (cd) chk("Out of the bottom", cd.chestDrop <= 6 ? "good" : cd.chestDrop <= 12 ? "warning" : "serious",
-      cd.chestDrop <= 6 ? "Chest and hips rise together out of the bottom." : `The hips rise faster than the chest out of the bottom (${cd.chestDrop.toFixed(0)}° more lean on rep ${cd.n}). Drive the upper back up into the bar.`);
+    if (cd) chk("outOfBottom", cd.chestDrop <= 6 ? "good" : cd.chestDrop <= 12 ? "warning" : "serious",
+      cd.chestDrop <= 6 ? tr("check.outOfBottom.good") : tr("check.outOfBottom.hips", { deg: num(cd.chestDrop, 0), n: cd.n }));
   }
   if (lift === "deadlift") {
     const hf = worst("hipsFirst");
-    if (hf) chk("Off the floor", hf.hipsFirst <= 5 ? "good" : hf.hipsFirst <= 10 ? "warning" : "serious",
-      hf.hipsFirst <= 5 ? "Hips and shoulders rise together off the floor." : `The hips shoot up first (the torso tips ${hf.hipsFirst.toFixed(0)}° forward on rep ${hf.n}). Push the floor away with the legs, chest up.`);
+    if (hf) chk("offFloor", hf.hipsFirst <= 5 ? "good" : hf.hipsFirst <= 10 ? "warning" : "serious",
+      hf.hipsFirst <= 5 ? tr("check.dlOffFloor.good") : tr("check.dlOffFloor.hipsFirst", { deg: num(hf.hipsFirst, 0), n: hf.n }));
     const lk = worst("hipLock", (a, b) => b < a);
-    if (lk) chk("Lockout", lk.hipLock >= 168 ? "good" : lk.hipLock >= 158 ? "warning" : "serious",
-      lk.hipLock >= 168 ? "Full lockout: hips straight at the top of every rep." : `Hips not fully locked out on rep ${lk.n} (${lk.hipLock.toFixed(0)}°). Finish by squeezing the glutes, standing tall.`);
+    if (lk) chk("lockout", lk.hipLock >= 168 ? "good" : lk.hipLock >= 158 ? "warning" : "serious",
+      lk.hipLock >= 168 ? tr("check.dlLockout.good") : tr("check.dlLockout.short", { n: lk.n, deg: num(lk.hipLock, 0) }));
     const lb = worst("leanTop", (a, b) => b < a);
-    if (lb && lb.leanTop < -10) chk("Leaning back", "warning", `Leaning back ${(-lb.leanTop).toFixed(0)}° at the top of rep ${lb.n}. Stand tall instead; there's nothing to gain past straight.`);
+    if (lb && lb.leanTop < -10) chk("leaningBack", "warning", tr("check.leaningBack.text", { deg: num(-lb.leanTop, 0), n: lb.n }));
   }
   if (lift === "bench") {
     const sh = avg("shift") * 100;
-    chk("Bar path", sh >= 3 && sh <= 18 ? "good" : sh >= 0 && sh < 3 ? "warning" : sh > 18 ? "warning" : "serious",
-      sh >= 3 && sh <= 18 ? `The bar travels from the chest back over the shoulders (${sh.toFixed(0)} cm): the usual J-curve.`
-        : sh >= 0 && sh < 3 ? `The bar goes nearly straight up (${sh.toFixed(0)} cm toward the head). Letting it drift back over the shoulders is usually stronger.`
-          : sh > 18 ? `The bar travels ${sh.toFixed(0)} cm toward your head. Check the touch point isn't too low on the belly.`
-            : `The bar drifts ${(-sh).toFixed(0)} cm toward your feet as you press. Press back over the shoulders.`);
+    chk("barPath", sh >= 3 && sh <= 18 ? "good" : sh >= 0 && sh < 3 ? "warning" : sh > 18 ? "warning" : "serious",
+      sh >= 3 && sh <= 18 ? tr("check.benchPath.jCurve", { cm: num(sh, 0) })
+        : sh >= 0 && sh < 3 ? tr("check.benchPath.straight", { cm: num(sh, 0) })
+          : sh > 18 ? tr("check.benchPath.tooFar", { cm: num(sh, 0) })
+            : tr("check.benchPath.feet", { cm: num(-sh, 0) }));
     if (R.length > 1) {
       const spread = sd(R.map((r) => r.touch)) * 100;
-      chk("Touch point", spread <= 2 ? "good" : spread <= 4 ? "warning" : "serious",
-        spread <= 2 ? "The bar touches the same spot on the chest every rep." : `The touch point moves between reps (±${spread.toFixed(0)} cm). Aim for the same spot every time.`);
+      chk("touchPoint", spread <= 2 ? "good" : spread <= 4 ? "warning" : "serious",
+        spread <= 2 ? tr("check.touchPoint.good") : tr("check.touchPoint.moves", { cm: num(spread, 0) }));
     }
     const bounce = R.find((r) => r.pause < 0.03 && r.downPeak > 0.7);
-    if (bounce) chk("Touch", "warning", `Rep ${bounce.n} comes down fast (${bounce.downPeak.toFixed(2)} m/s) with no pause: it may bounce off the chest.`);
+    if (bounce) chk("bounce", "warning", tr("check.bounce.text", { n: bounce.n, v: num(bounce.downPeak, 2) }));
   }
   if (lift === "press") {
     const el = worst("elbowTop", (a, b) => b < a);
-    if (el) chk("Lockout", el.elbowTop >= 165 ? "good" : el.elbowTop >= 155 ? "warning" : "serious",
-      el.elbowTop >= 165 ? "Elbows locked out overhead on every rep." : `Elbows not fully locked out on rep ${el.n} (${el.elbowTop.toFixed(0)}°). Finish with the biceps by the ears.`);
+    if (el) chk("lockout", el.elbowTop >= 165 ? "good" : el.elbowTop >= 155 ? "warning" : "serious",
+      el.elbowTop >= 165 ? tr("check.pressLockout.good") : tr("check.pressLockout.short", { n: el.n, deg: num(el.elbowTop, 0) }));
     const lb = worst("leanBack");
-    if (lb) chk("Torso", lb.leanBack <= 8 ? "good" : lb.leanBack <= 15 ? "warning" : "serious",
-      lb.leanBack <= 8 ? "The torso stays stacked while pressing." : `Leaning back ${lb.leanBack.toFixed(0)}° while pressing on rep ${lb.n}. Squeeze glutes and abs; move the head, not the hips.`);
+    if (lb) chk("torso", lb.leanBack <= 8 ? "good" : lb.leanBack <= 15 ? "warning" : "serious",
+      lb.leanBack <= 8 ? tr("check.torso.good") : tr("check.torso.leans", { deg: num(lb.leanBack, 0), n: lb.n }));
   }
   const away = Math.max(...R.map((r) => r.away)) * 100, wander = Math.max(...R.map((r) => r.drift)) * 100;
-  if (lift === "squat") chk("Bar path", wander <= 5 ? "good" : wander <= 9 ? "warning" : "serious",
-    wander <= 5 ? `The bar goes straight up (within ${wander.toFixed(0)} cm).` : `The bar wanders ${wander.toFixed(0)} cm front-to-back on the way up. Keep it over mid-foot.`);
-  if (lift === "deadlift") chk("Bar path", away <= 3 ? "good" : away <= 6 ? "warning" : "serious",
-    away <= 3 ? "The bar stays close to the legs on the way up." : `The bar drifts ${away.toFixed(0)} cm away from the legs. Keep it dragging up the shins and thighs.`);
-  if (lift === "press") chk("Bar path", away <= 6 ? "good" : away <= 10 ? "warning" : "serious",
-    away <= 6 ? "The bar travels close to the face." : `The bar loops ${away.toFixed(0)} cm forward around the face. Move the head back and press straight up.`);
+  if (lift === "squat") chk("barPath", wander <= 5 ? "good" : wander <= 9 ? "warning" : "serious",
+    tr(wander <= 5 ? "check.squatPath.good" : "check.squatPath.wanders", { cm: num(wander, 0) }));
+  if (lift === "deadlift") chk("barPath", away <= 3 ? "good" : away <= 6 ? "warning" : "serious",
+    away <= 3 ? tr("check.dlPath.good") : tr("check.dlPath.drifts", { cm: num(away, 0) }));
+  if (lift === "press") chk("barPath", away <= 6 ? "good" : away <= 10 ? "warning" : "serious",
+    away <= 6 ? tr("check.pressPath.good") : tr("check.pressPath.loops", { cm: num(away, 0) }));
 
   const notes = [];
   const a0 = R[0].begin, a1 = R[R.length - 1].end;
   let lo = Infinity, hi = 0;
   for (let i = a0; i <= a1; i++) { lo = Math.min(lo, rs[i]); hi = Math.max(hi, rs[i]); }
   const sizeChange = hi / lo - 1;
-  if (sizeChange > 0.12) notes.push(`The plate's size on screen changed by ${Math.round(100 * sizeChange)}% during the set, so the camera was close or tilted. Distances are approximate. Film from further back with the phone level.`);
+  if (sizeChange > 0.12) notes.push(tr("note.sizeSet", { pct: Math.round(100 * sizeChange) }));
   const lost = gap.slice(a0, a1 + 1).reduce((a, b) => a + b, 0) / fs;
-  if (lost > 0.1) notes.push(`The plate was lost for ${lost.toFixed(2)} s during the set; values there are filled in.`);
-  if (mvt && last <= 1.25 * mvt.hi) notes.push(`The last rep moved at ${last.toFixed(2)} m/s. ${lift === "press" ? "An" : "A"} ${LIFTS[lift].toLowerCase()} at a 1-rep max typically moves at ${mvt.text}, so that was close to the limit.`);
-  if (R.length === 1) notes.push("One rep: velocity loss needs two or more.");
-  if (done.length < R.length) notes.push("The last rep doesn't come back to the start, so it isn't counted in velocity loss.");
-  if (!side) notes.push(`Body tracking is off or found nobody, so ${lift === "squat" ? "depth" : "body checks"} can't be judged.`);
+  if (lost > 0.1) notes.push(tr("note.lostSet", { s: num(lost, 2) }));
+  if (mvt && last <= 1.25 * mvt.hi) notes.push(tr(`note.nearMax.${lift}`, { v: num(last, 2), atMax }));
+  if (R.length === 1) notes.push(tr("note.oneRep"));
+  if (done.length < R.length) notes.push(tr("note.unfinished"));
+  if (!side) notes.push(tr(lift === "squat" ? "note.noBodyDepth" : "note.noBody"));
 
   const sticky = sticks.length ? sticks.reduce((a, b) => (vy[b.sticking] < vy[a.sticking] ? b : a)) : null;
   let vmaxI = R[0].iPeak;
   for (const r of R) if (vy[r.iPeak] > vy[vmaxI]) vmaxI = r.iPeak;
   const sq = lift === "squat" ? worst("depth", (a, b) => b < a) : null;
   const tiles = [
-    { label: "Reps", value: String(R.length), unit: "", note: done.length < R.length ? "last one unfinished" : `${(avg("rom") * 100).toFixed(0)} cm range each` },
-    { label: "Best mean speed", value: best.toFixed(2), unit: "m/s", note: `lifting, rep ${bestRep}` },
-    { label: "Velocity loss", value: loss === null ? "–" : String(pct(loss)), unit: loss === null ? "" : "%", note: loss === null ? "needs 2+ reps" : "best rep to last" },
-    lift === "squat" && sq ? { label: sq.depth >= 0 ? "Below parallel" : "Above parallel", value: (Math.abs(sq.depth) * THIGH_CM).toFixed(0), unit: "cm", note: `shallowest rep (${sq.n}), approx.` }
-      : lift === "bench" ? { label: "Touch → lockout", value: fmtSigned(avg("shift") * 100, 0), unit: "cm", note: "toward the head: the J-curve" }
-        : variant ? { label: "Dip depth", value: (Math.max(...R.map((r) => r.dip)) * 100).toFixed(0), unit: "cm", note: "before the drive" }
-          : { label: "Range of motion", value: (avg("rom") * 100).toFixed(0), unit: "cm", note: "average per rep" },
+    { label: tr("tile.reps"), value: String(R.length), unit: "", note: done.length < R.length ? tr("tile.reps.unfinished") : tr("tile.reps.note", { cm: num(avg("rom") * 100, 0) }) },
+    { label: tr("tile.bestSpeed"), value: num(best, 2), unit: "m/s", note: tr("tile.liftingRep", { n: bestRep }) },
+    { label: tr("tile.velocityLoss"), value: loss === null ? "–" : String(pct(loss)), unit: loss === null ? "" : "%", note: tr(loss === null ? "tile.velocityLoss.none" : "tile.velocityLoss.note") },
+    lift === "squat" && sq ? { label: tr(sq.depth >= 0 ? "tile.belowParallel" : "tile.aboveParallel"), value: num(Math.abs(sq.depth) * THIGH_CM, 0), unit: "cm", note: tr("tile.shallowest.note", { n: sq.n }) }
+      : lift === "bench" ? { label: tr("tile.touchLockout"), value: fmtSigned(avg("shift") * 100, 0), unit: "cm", note: tr("tile.touchLockout.note") }
+        : variant ? { label: tr("tile.dip"), value: num(Math.max(...R.map((r) => r.dip)) * 100, 0), unit: "cm", note: tr("tile.dip.note") }
+          : { label: tr("tile.rom"), value: num(avg("rom") * 100, 0), unit: "cm", note: tr("tile.rom.note") },
   ];
   const allDeep = lift === "squat" && withK("depth").length === R.length && R.every((r) => r.depth >= 0.02);
 
@@ -955,20 +948,25 @@ function reps(sig, opts, lift) {
     facing, facingFrom, vmax: vy[vmaxI], ev: { start: a0, vmax: vmaxI },
     t0i: a0, span: [Math.max(0, a0 - Math.round(0.3 * fs)), Math.min(n - 1, a1 + Math.round(0.3 * fs))],
     marks: [
-      { i: a0, name: "Start", side: "right" },
-      ...R.map((r, k) => ({ i: r.p, name: k === 0 ? turn : null, side: "right" })),
-      ...(sticky ? [{ i: sticky.sticking, name: "Sticking point", side: "left" }] : []),
+      { i: a0, name: tr("mark.start"), side: "right" },
+      ...R.map((r, k) => ({ i: r.p, name: k === 0 ? tr(`mark.${turn}`) : null, side: "right" })),
+      ...(sticky ? [{ i: sticky.sticking, name: tr("mark.sticking"), side: "left" }] : []),
     ],
     tiles,
-    axis: { x: lift === "bench" ? ["← feet", "head →"] : ["← back", "forward →"], h: floor ? "m from the floor" : "m from the start", t: "s from the first rep" },
-    title: `${LIFTS[lift]}${variant ? ` (${variant})` : ""} · ${R.length} rep${R.length === 1 ? "" : "s"}${allDeep ? " · below parallel" : ""}`,
+    axis: { x: lift === "bench" ? [tr("axis.x.feet"), tr("axis.x.head")] : [tr("axis.x.back"), tr("axis.x.forward")], h: tr(floor ? "axis.h.floor" : "axis.h.start"), t: tr("axis.t.firstRep") },
+    // the parts joined by " · " (the gallery splits a title there)
+    title: [variant ? tr("title.variant", { lift: LIFTS[lift], variant }) : LIFTS[lift], tr("title.reps", { n: R.length }), ...(allDeep ? [tr("title.belowParallel")] : [])].join(" · "),
   };
 }
 
 /** a measurement's value as shown (signed: a difference between two lifts) */
 export function fmtMetric(m, signed = false) {
-  const d = m.unit === "cm" ? (Math.abs(m.value) < 10 && m.label !== "Catch vs start" ? 1 : 0)
+  const catchVsStart = m.label === tr("metric.catchVsStart.label"); // shown signed, whole cm
+  const d = m.unit === "cm" ? (Math.abs(m.value) < 10 && !catchVsStart ? 1 : 0)
     : ["°", "%", "", "W", "N", "J"].includes(m.unit) ? 0 : m.unit === "kg" ? (Number.isInteger(m.value) ? 0 : 1) : 2;
-  return signed || m.label === "Catch vs start" ? fmtSigned(m.value, d) : m.value.toFixed(d);
+  return signed || catchVsStart ? fmtSigned(m.value, d) : num(m.value, d);
 }
-export function fmtSigned(v, d = 0) { const s = v.toFixed(d); return Number(s) === 0 ? (0).toFixed(d) : v > 0 ? `+${s}` : s.replace("-", "−"); }
+/** v with d decimals and a sign (a true minus), in the language's decimal mark; zero unsigned */
+export function fmtSigned(v, d = 0) { const s = num(v, d); return Number(v.toFixed(d)) === 0 ? num(0, d) : v > 0 ? `+${s}` : s.replace("-", "−"); }
+/** a number as written, every decimal it has, in the language's decimal mark (the load as entered, an axis tick) */
+export const fmtPlain = (v) => num(v, (String(v).split(".")[1] || "").length);

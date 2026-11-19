@@ -2,7 +2,10 @@
  * compared. Three stores, so the list stays light:
  *   lifts   the card: id, filmed / saved times, name, title, lift, headline numbers, thumbnail (Blob)
  *   data    what analyse() needs to run again: samples, plate, the part, settings, frame rate
- *   videos  the video file itself (Blob), only read when the lift is opened or compared */
+ *   videos  the video file itself (Blob), only read when the lift is opened or compared (or cut to its analysed part) */
+import { tr } from "./i18n.js";
+import { trimVideo } from "./clip.js";
+
 const NAME = "barpath", VERSION = 1, STORES = ["lifts", "data", "videos"];
 let opening = null;
 
@@ -22,7 +25,7 @@ async function tx(names, mode, fn) {
     const t = d.transaction(names, mode);
     const out = fn(Object.fromEntries(names.map((n) => [n, t.objectStore(n)])));
     t.oncomplete = () => resolve(out instanceof IDBRequest ? out.result : Array.isArray(out) ? out.map((q) => q?.result) : out);
-    const fail = () => reject(t.error || new Error("storage is full or not available here"));
+    const fail = () => reject(t.error || new Error(tr("store.failed")));
     t.onerror = fail;
     t.onabort = fail;
   });
@@ -87,6 +90,27 @@ export async function get(id) {
 }
 export function remove(ids) {
   return tx(STORES, "readwrite", (s) => { for (const id of [].concat(ids)) for (const n of STORES) s[n].delete(id); });
+}
+/* Keeping only the analysed part of a video (clip.js): planned first (the cut is quick and holds no bytes), so the
+ * space it frees can be shown before anything is deleted; then saved over the lift with its data moved onto the
+ * shorter video's timeline (every time shifts by the cut's offset). */
+/** each saved video's size in bytes, by id (the records hold the Blobs; their bytes aren't read) */
+export async function sizes() {
+  if (!(await canStoreBlobs())) return new Map(); // stored as bytes: reading them all would load every video
+  const all = await tx(["videos"], "readonly", (s) => s.videos.getAll());
+  return new Map(all.map((v) => [v.id, v.blob instanceof Blob ? v.blob.size : 0]));
+}
+/** a lift's video cut to its analysed part, not saved yet: { card, data, video, r } (r: trimVideo's result) */
+export async function planTrim(id) {
+  const got = await get(id);
+  if (!got) return null;
+  return { ...got, r: await trimVideo(got.video, got.data.start, got.data.end ?? null) };
+}
+/** save a planned cut: the shorter video replaces the old one, the tracked samples and the part move with it */
+export function applyTrim(p) {
+  const { card, data, r } = p, shift = (t) => (t === null || t === undefined ? t : t - r.offset);
+  const moved = { ...data, start: shift(data.start), end: shift(data.end), samples: data.samples.map((s) => ({ ...s, t: s.t - r.offset })) };
+  return put({ ...card, trimmed: true, bytes: r.after }, moved, r.blob);
 }
 /** bytes used on this device, when the browser says */
 export async function usage() {

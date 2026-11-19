@@ -14,7 +14,8 @@ push to `main` (public repo); that address is also the `canonical` link Share ap
 
 ```bash
 npm run vendor && npm run serve            # dev server on :8765
-npm test                                   # snatch on ideal data + squat/deadlift/bench/press on a synthetic lifter + QR read-back (must pass)
+npm test                                   # snatch on ideal data + squat/deadlift/bench/press on a synthetic lifter + QR read-back
+                                           # + cutting videos (test/clip.test.mjs, ffmpeg-made clips; skips without ffmpeg) (must pass)
 node test/synth.mjs /tmp/s.mp4 && node test/track.test.mjs /tmp/s.mp4 && node test/analysis.test.mjs /tmp/s.mp4
 node test/e2e.mjs . /tmp/s.mp4 /tmp/s.truth.json /tmp/out --at 0.4 --end 4   # headless Chrome at S23 size: drags the handles, reads the share QR
 tools/phone.sh <adb device>                # serve to the phone as http://localhost:8765 and open it
@@ -35,6 +36,16 @@ reads videos); a saved lift keeps its samples and settings and reopens by re-run
 on the results update it; Mark again → Analyse replaces it. `compare.js` lines lifts up at `t0i` (τ = s from
 lift-off), syncs their videos on a wall clock and nudges any that drift. Gallery and compare get history entries,
 so the phone's Back works.
+
+Keeping only the analysed part (`clip.js`, shared with Kip Lab): a saved video is cut losslessly (its samples copied
+into a new MP4, nothing decoded) from the keyframe at or before `start` to `end`. `store.js` `planTrim()` cuts without
+saving (so the space it frees is shown first), `applyTrim()` replaces the video and shifts the data (samples' `t`,
+`start`, `end`) by the cut's offset, so `analyse()` gives the same results. Offered on a saved lift's results (when it
+frees 5% or more) and for any ticked lifts in the gallery; trimmed cards get `trimmed: true`.
+
+Text: everything the app shows comes from `locales/en.js` through `tr()` / `num()` (`i18n.js`, shared with Kip Lab);
+static HTML through `data-i18n*` attributes and `applyDom()` at startup. Another language = `locales/<lang>.js` with
+the same keys, listed in `LANGS` (i18n.js) and in `SHELL_FILES`; Settings shows a language picker once there are two.
 
 `analyse()` = `prepare()` (grid, smoothing, per-frame scale, pose access) → `recognise()` → `olympic()` (snatch,
 clean, jerk: one pull) or `reps()` (squat, bench go down first; deadlift, press go up first). Both return the same
@@ -80,13 +91,23 @@ press by the bar's biggest trip from rest, not its first move (unracking lifts t
   camera app opened from the page records FHD 60. The in-app camera (spirit level) is the secondary 30 fps option.
   Chrome ignores `capture="environment"` (a bare ACTION_VIDEO_CAPTURE intent), and the S23 camera starts on the
   front camera in that mode: the hint says to flip; the back camera remembers FHD 60.
+- **Cutting a video** starts on a keyframe, and every kept frame keeps its time: new = old − offset (checked frame by
+  frame against FFmpeg, and in Chrome, on phone clips too). Players read fragmented MP4 (the in-app camera's) without
+  its edit lists (FFmpeg's demuxer, which Chrome plays files with), so clip.js ignores them there; honouring them put
+  the offset off by the edit (23 ms on an ffmpeg-made file).
+- **Charts scrub only with a sideways drag or a tap** (`touch-action: pan-y` + `scrub()` in charts.js): with `none`, a
+  thumb scrolling the results on the phone landed on a chart and scrubbed it instead.
 - **The plate mark belongs to the start frame** (tracking only runs forward). The circle is drawn only on that
   frame; letting go of the end handle shows the start frame again; a tap on the plate near the end is refused;
   moving the start re-finds the plate near the old mark (kept as is, with a warning, if the rim isn't found).
 
 ## Conventions
 - Colours only via the CSS tokens in `css/app.css` (validated categorical stage colours, sequential speed ramp,
-  status colours with icon + label). Dark mode has its own steps; QR codes stay dark on light in both.
+  status colours with icon + label). Dark mode has its own steps; QR codes stay dark on light in both. Text colours
+  (`--muted`, `--sN-on` labels on stage colours, `--*-text` status text) are checked for 4.5:1 in both themes.
+- Visible text through `tr()` (named tr: `t` is time all over this code), numbers in text through `num()`; never
+  `tr()` at a module's top level (the language is set at startup). CSV/JSON exports stay English with "." decimals.
+- Icons from the SVG sprite at the top of `index.html` (`<use href="#i-…">`), never Unicode glyphs.
 - Text into the DOM via `textContent`, never `innerHTML` with data.
 - New app files must be added to `SHELL_FILES` in `sw.js`; bump `SHELL` when caching behaviour changes.
 - Every analysis change keeps `npm test` and the synthetic tracked test passing; check a real clip end to end.

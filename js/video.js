@@ -5,12 +5,13 @@
  * playback rate drops so it catches up, and the analysis works on whatever frames it got.
  * Phones record variable frame rate in low light, so per-frame timestamps matter.
  */
+import { tr } from "./i18n.js";
 export const hasRVFC = typeof HTMLVideoElement !== "undefined" && "requestVideoFrameCallback" in HTMLVideoElement.prototype;
 const MIN_RATE = 0.0625;
 
 export function once(el, name, ms = 8000) {
   return new Promise((resolve, reject) => {
-    const t = setTimeout(() => { el.removeEventListener(name, on); reject(new Error(`Timed out waiting for ${name}`)); }, ms);
+    const t = setTimeout(() => { el.removeEventListener(name, on); reject(new Error(tr("video.timedOut", { name }))); }, ms);
     const on = (e) => { clearTimeout(t); resolve(e); };
     el.addEventListener(name, on, { once: true });
   });
@@ -24,8 +25,8 @@ export async function load(video, src) {
   await new Promise((resolve, reject) => {
     const done = (fn, arg) => () => { clearTimeout(timer); video.removeEventListener("loadedmetadata", ok); video.removeEventListener("error", bad); fn(arg); };
     const ok = done(resolve);
-    const bad = done(reject, new Error("This video can't be played here. Try an MP4 from the phone's camera app."));
-    const timer = setTimeout(done(reject, new Error("The video took too long to open.")), 20000);
+    const bad = done(reject, new Error(tr("video.cantPlay")));
+    const timer = setTimeout(done(reject, new Error(tr("video.tooSlow"))), 20000);
     video.addEventListener("loadedmetadata", ok);
     video.addEventListener("error", bad);
     video.src = src;

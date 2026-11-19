@@ -49,7 +49,9 @@ shoulders; where the bar finishes), from the bar alone otherwise — and can be 
 5. **Gallery.** Every analysis is kept on the phone (IndexedDB: the video, the tracked frames, the settings) and
    reopens instantly, without tracking again. Tick two to four lifts to **compare** them: videos side by side,
    lined up at lift-off, playing and scrubbing together; bar paths and speeds overlaid, one colour per lift;
-   every measurement side by side, with the difference for two.
+   every measurement side by side, with the difference for two. **Keep only the analysed part** of a video (on its
+   results, or for any ticked lifts) to free space: the video is cut losslessly from the keyframe just before the
+   analysed part, and the analysis stays exactly the same.
 
 ## Filming
 
@@ -117,6 +119,8 @@ where Chrome installed it.
 | `js/app.js` | screens and flow: record/pick, choose the part, mark, track, results, replay, export, install, share target |
 | `js/trim.js` | the timeline: filmstrip, start/end handles, playhead |
 | `js/store.js`, `js/gallery.js`, `js/compare.js` | the gallery: storage on the phone, the list, comparing lifts |
+| `js/clip.js` | keeping part of a video: a lossless MP4 cut (no library), shared with Kip Lab |
+| `js/i18n.js`, `locales/en.js` | every text the app shows, by key: English now, another language is one more catalog |
 | `js/share.js`, `js/qr.js` | Share app: the link, the system share sheet, a QR code encoder (no library) |
 | `js/plate.js` | plate detection and tracking |
 | `js/analysis.js` | smoothing, scale, events, stages, measurements, checks |

@@ -2,9 +2,9 @@
  * Messages, Quick Share…) and a copy of the link. The link is this app's public address: where it's running,
  * or, when it's served from this computer (localhost / the local network), the canonical address in index.html. */
 import { encode } from "./qr.js";
+import { tr } from "./i18n.js";
 
 const PRIVATE = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[::1\]$|[^.]+$)/;
-const TEXT = "Bar Path: bar path, bar speed and lift stages from one side-on phone video. Everything runs on the phone. Open the link in Chrome and tap Install.";
 
 /** the link to give out, and whether it's only reachable from this phone */
 export function appLink() {
@@ -46,25 +46,23 @@ export function qrSvg(text, label) {
 export function initShare({ dialog, open, qr, link, note, send, copy, close }) {
   const show = () => {
     const L = appLink();
-    qr.replaceChildren(qrSvg(L.url, `QR code for ${L.url}`));
+    qr.replaceChildren(qrSvg(L.url, tr("share.qrLabel", { url: L.url })));
     link.textContent = L.url.replace(/^https?:\/\//, "");
-    note.textContent = L.localOnly
-      ? "This copy is served from your computer, so the link only works on this phone. Put the app online to share it (README → Share)."
-      : "Scan it with another phone's camera, or send the link. Open it in Chrome and tap Install; on an iPhone, Safari → Share → Add to Home Screen. Videos never leave the phone.";
+    note.textContent = tr(L.localOnly ? "share.localOnly" : "share.note");
     send.hidden = !navigator.share;
-    copy.textContent = "Copy link";
+    copy.textContent = tr("share.copy");
     dialog.showModal();
   };
   open.addEventListener("click", show);
   close.addEventListener("click", () => dialog.close());
   dialog.addEventListener("click", (e) => { if (e.target === dialog) dialog.close(); }); // a tap on the backdrop
   send.addEventListener("click", async () => {
-    try { await navigator.share({ title: "Bar Path", text: TEXT, url: appLink().url }); } catch { /* dismissed */ }
+    try { await navigator.share({ title: tr("app.name"), text: tr("share.text"), url: appLink().url }); } catch { /* dismissed */ }
   });
   copy.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(appLink().url);
-      copy.textContent = "Copied ✓";
+      copy.textContent = tr("share.copied");
     } catch {
       getSelection()?.selectAllChildren(link); // select it, so it can be copied by hand
     }
