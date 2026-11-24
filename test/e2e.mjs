@@ -184,6 +184,10 @@ const setKg = async (v) => {
 console.log("with 60 kg:", JSON.stringify(await setKg(60)));
 await page.evaluate(() => document.querySelector(".res-head").scrollIntoView());
 await page.screenshot({ path: `${outDir}/09b-load.png` });
+// Reopen the first lift so the current history entry identifies it before starting a new video.
+await page.tap("#btnGallery2");
+await page.tap("#galList .lift .open");
+await page.waitForFunction(() => window.__barpath.mode === "results");
 await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
 await page.tap("#btnNew2");
 await page.setInputFiles("#fileInput", videoPath);
@@ -196,7 +200,21 @@ await page.waitForFunction(() => !document.getElementById("video").seeking);
 const box2 = await page.locator("#overlay").boundingBox();
 await page.touchscreen.tap(box2.x + (tx / vw[0]) * box2.width, box2.y + (ty / vw[1]) * box2.height);
 await page.waitForFunction(() => !document.getElementById("btnAnalyse").disabled);
+await page.evaluate(() => {
+  const toBlob = HTMLCanvasElement.prototype.toBlob;
+  HTMLCanvasElement.prototype.toBlob = function (...args) {
+    HTMLCanvasElement.prototype.toBlob = toBlob;
+    window.releaseFirstSave = () => toBlob.apply(this, args);
+  };
+});
 await page.tap("#btnAnalyse");
+await page.waitForFunction(() => !!window.releaseFirstSave && window.__barpath.mode === "results");
+const pendingId = await page.evaluate(() => window.__barpath.firstSave.id);
+await page.tap("#btnGallery2");
+await page.goBack();
+await page.waitForSelector("#results:not([hidden])");
+assert.equal(await page.evaluate(() => window.__barpath.firstSave?.id), pendingId, "Back keeps the newly analysed lift while its first write is pending");
+await page.evaluate(() => window.releaseFirstSave());
 await page.waitForFunction(() => /Saved in the gallery/.test(document.getElementById("resSaved").textContent), null, { timeout: 240000 });
 await setKg(70);
 const second = await page.evaluate(() => ({ title: window.__barpath.R.title, frames: window.__barpath.samples.length, kg: window.__barpath.R.kg }));
@@ -233,6 +251,13 @@ clearInterval(watch);
 const reopened = await page.evaluate(() => ({ title: window.__barpath.R.title, frames: window.__barpath.samples.length, start: window.__barpath.start, kg: window.__barpath.R.kg, input: document.getElementById("kg").value, height: document.getElementById("heightCm").value }));
 if (reopened.kg !== 60 || reopened.input !== "60") throw new Error("the saved lift should keep its load");
 assert.equal(reopened.height, "", "a saved lift without height clears the previous lift's height");
+const savedDefaultHeight = await page.evaluate(() => {
+  const pose = document.getElementById("poseModel");
+  pose.value = pose.value === "off" ? "lite" : "off";
+  pose.dispatchEvent(new Event("change", { bubbles: true }));
+  return JSON.parse(localStorage.getItem("barpath.settings")).heightCm;
+});
+assert.equal(savedDefaultHeight, 170, "changing another setting preserves the default height");
 console.log(`reopened in ${((Date.now() - t1) / 1000).toFixed(1)} s, tracked again: ${tracked}:`, JSON.stringify(reopened));
 if (tracked || reopened.frames !== R.frames) throw new Error("reopening a saved lift should bring back its frames, not track again");
 await page.screenshot({ path: `${outDir}/11-reopened.png` });
@@ -278,16 +303,25 @@ await page.waitForFunction(() => window.__barpathCompare.L.length === 2 && windo
 assert.deepEqual(await page.evaluate(() => window.__barpathCompare.L.map(({ card, R }) => ({ id: card.id, facing: R.facing }))), compared, "Forward restores the same comparison");
 
 if (T && endAt) {
-  const stillExists = await page.evaluate(async (id) => {
+  const trimChecks = await page.evaluate(async (id) => {
     const store = await import("./js/store.js");
     const { card, data, video } = await store.get(id), copy = store.newId();
     await store.put({ ...card, id: copy }, data, video);
     const plan = await store.planTrim(copy);
     const [, deletion] = await Promise.allSettled([store.applyTrim(plan), store.remove(copy)]);
     if (deletion.status === "rejected") throw deletion.reason;
-    return !!await store.get(copy);
+    const stillExists = !!await store.get(copy);
+
+    await store.put({ ...card, id: copy }, data, video);
+    const currentPlan = await store.planTrim(copy);
+    await store.update(copy, { kg: 90 }, { opts: { ...data.opts, kg: 90 } });
+    await store.applyTrim(currentPlan);
+    const staleRejected = await store.put(currentPlan.card, currentPlan.data).then(() => false, () => true);
+    const trimmed = await store.get(copy);
+    await store.remove(copy);
+    return { stillExists, staleRejected, kg: trimmed.data.opts.kg, trimmed: trimmed.card.trimmed };
   }, corrected.id);
-  assert.equal(stillExists, false, "an overlapping trim never brings back a deleted lift");
+  assert.deepEqual(trimChecks, { stillExists: false, staleRejected: true, kg: 90, trimmed: true }, "trimming preserves newer settings and rejects saved analyses of the old video");
 }
 
 // kept across a reload; delete one
@@ -318,6 +352,10 @@ if (checkOffline) {
   await page.waitForFunction(() => !!navigator.serviceWorker.controller);
   await page.evaluate(() => localStorage.setItem("barpath.lang", "it"));
   await ctx.setOffline(true);
+  await new Promise((resolve) => {
+    server.close(resolve);
+    server.closeAllConnections();
+  });
   await page.reload();
   await page.waitForFunction(() => document.documentElement.lang === "it" && !!window.__barpathCompare);
   const models = await page.evaluate(async () => {
@@ -329,4 +367,5 @@ if (checkOffline) {
 }
 console.log(errors.length ? "PAGE ERRORS:\n" + errors.join("\n") : "no page errors");
 await browser.close();
-server.close();
+if (server.listening) server.close();
+if (errors.some((error) => error.startsWith("pageerror:"))) process.exitCode = 1;

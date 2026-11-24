@@ -233,6 +233,7 @@ export default {
 
   // storage (store.js)
   "store.failed": "storage is full or not available here",
+  "store.changed": "this video changed in the gallery. Open it again to analyse the current version",
 
   // charts (charts.js)
   "chart.where.repStage": "Rep {rep} · {stage}",

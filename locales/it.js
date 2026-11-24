@@ -235,6 +235,7 @@ export default {
 
   // storage (store.js)
   "store.failed": "la memoria è piena o non è disponibile qui",
+  "store.changed": "il video è cambiato nella galleria. Riaprilo per analizzare la versione attuale",
 
   // charts (charts.js)
   "chart.where.repStage": "Rip. {rep} · {stage}",

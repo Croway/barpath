@@ -66,15 +66,26 @@ export async function list() {
   const all = await tx(["lifts"], "readonly", (s) => s.lifts.getAll());
   return all.map((c) => ({ ...c, thumb: unpack(c.thumb) })).sort((a, b) => b.filmed - a.filmed || b.saved - a.saved);
 }
-/** save a lift: card and data always, the video only when given (it never changes for an id) */
+/** Save a new lift with its video, or replace the analysis of the same version of a saved video. */
 export async function put(card, data, video) {
   const blobs = await canStoreBlobs();
   const c = blobs ? card : { ...card, thumb: await pack(card.thumb) }, v = video && (blobs ? video : await pack(video));
-  return tx(v ? STORES : ["lifts", "data"], "readwrite", (s) => {
+  if (v) return tx(STORES, "readwrite", (s) => {
     s.lifts.put(c);
     s.data.put({ ...data, id: c.id });
-    if (v) s.videos.put({ id: c.id, blob: v });
+    s.videos.put({ id: c.id, blob: v });
   });
+  const result = await tx(["lifts", "data"], "readwrite", (s) => {
+    const oldCard = s.lifts.get(c.id), oldData = s.data.get(c.id), outcome = { saved: false };
+    oldData.onsuccess = () => {
+      if (!oldCard.result || !oldData.result || (oldData.result.videoVersion ?? 0) !== (data.videoVersion ?? 0)) return;
+      s.lifts.put({ ...oldCard.result, ...c });
+      s.data.put({ ...data, id: c.id });
+      outcome.saved = true;
+    };
+    return outcome;
+  });
+  if (!result.saved) throw new Error(tr("store.changed"));
 }
 /** merge changes into a saved lift's card and data (the lift picked, plate size, …) */
 export function update(id, card, data) {
@@ -120,12 +131,12 @@ export async function applyTrim(p) {
       const card = cardReq.result, data = dataReq.result;
       if (!card || !data || videoReq.result === undefined) {
         result.error = "not in the gallery any more";
-      } else if (card.trimmed || data.start !== p.data.start || (data.end ?? null) !== (p.data.end ?? null)) {
+      } else if (card.trimmed || (data.videoVersion ?? 0) !== (p.data.videoVersion ?? 0) || data.start !== p.data.start || (data.end ?? null) !== (p.data.end ?? null)) {
         result.error = "changed since: open it again";
       } else {
         const samples = data.samples.map((sample) => ({ ...sample, t: shift(sample.t) }));
         s.lifts.put({ ...card, trimmed: true, bytes: r.after });
-        s.data.put({ ...data, start: shift(data.start), end: shift(data.end), samples });
+        s.data.put({ ...data, start: shift(data.start), end: shift(data.end), samples, videoVersion: (data.videoVersion ?? 0) + 1 });
         s.videos.put({ id, blob: video });
       }
     };
