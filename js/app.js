@@ -41,7 +41,7 @@ const S = {
   samples: null, R: null, cursor: null, facingOverride: null,
   mode: "start", abort: null, playing: false, rate: 0.25,
   cam: null, recorder: null, stopLevel: null, poseNote: "",
-  file: null, filmed: 0, entryId: null, thumbFrame: null, // the gallery: the source file, when it was filmed, its saved id
+  file: null, filmed: 0, entryId: null, firstSave: null, thumbFrame: null,
 };
 window.__barpath = S; // for tests and debugging (the compare view: window.__barpathCompare)
 
@@ -59,10 +59,12 @@ function saveSettings() {
 }
 const kg = () => { const v = parseFloat($("kg").value); return v > 0 && v <= 500 ? v : null; };
 const heightCm = () => { const v = parseFloat($("heightCm").value); return v >= 100 && v <= 250 ? v : null; };
-const opts = () => ({ plateMm: +$("plateMm").value, slowmo: +$("slowmo").value, facing: S.facingOverride ?? +$("facing").value, lift: $("liftSel").value, kg: kg(), heightCm: heightCm() });
+const liftOpts = () => ({ plateMm: +$("plateMm").value, slowmo: +$("slowmo").value, facing: +$("facing").value, facingOverride: S.facingOverride, lift: $("liftSel").value, kg: kg(), heightCm: heightCm() });
 
 /* ------------------------------------------------------------------ screens */
 function setMode(m) {
+  if (S.mode === "results" && m !== "results") flushSave();
+  if (S.mode === "camera" && m !== "camera") closeCam();
   S.mode = m;
   document.body.dataset.mode = m; // the app's header shows on the start screen only
   $("start").hidden = m !== "start";
@@ -97,10 +99,11 @@ function grab(src, sx, sy, sw, sh, w, h) {
 /* ------------------------------------------------------------------ open a video */
 /** saved: { card, data } from the gallery: the analysis comes back as it was, without tracking again */
 async function openVideo(file, name, recorded, saved = null) {
+  flushSave();
   stopPlayback();
   if (S.src) URL.revokeObjectURL(S.src);
   Object.assign(S, { blob: recorded ? file : null, name, src: URL.createObjectURL(file), plate: null, samples: null, R: null, end: null, start: 0, cursor: null, facingOverride: null });
-  Object.assign(S, { file, filmed: saved ? saved.card.filmed : file.lastModified || Date.now(), entryId: saved?.card.id ?? null, thumbFrame: null, runStats: null });
+  Object.assign(S, { file, filmed: saved ? saved.card.filmed : file.lastModified || Date.now(), entryId: saved?.card.id ?? null, firstSave: null, thumbFrame: null, runStats: null });
   if (!saved) { loadSettings(); $("liftSel").value = "auto"; $("facing").value = "0"; $("kg").value = ""; } // a new video starts from your defaults
   $("resSaved").textContent = "";
   $("btnDelete").hidden = true;
@@ -134,7 +137,7 @@ function restore(d) {
   for (const k of ["plateMm", "slowmo", "facing"]) if (o[k] !== undefined && $(k).querySelector(`option[value="${CSS.escape(String(o[k]))}"]`)) $(k).value = String(o[k]);
   $("liftSel").value = o.lift || "auto";
   $("kg").value = o.kg ? String(o.kg) : "";
-  if (o.heightCm) $("heightCm").value = String(o.heightCm);
+  $("heightCm").value = o.heightCm ?? "";
   Object.assign(S, { start: d.start, end: d.end ?? null, plate: { ...d.plate }, r0: d.plate.r, samples: d.samples, runStats: d.runStats || null, poseNote: d.poseNote || "", facingOverride: o.facingOverride ?? null });
   TL.setRange(S.start, endT());
   $("sizeField").hidden = false;
@@ -348,7 +351,7 @@ const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls)
 const note = (text) => { const li = el("li"); li.append(icon("warning", "ico warning"), el("span", null, text)); return li; };
 
 function showResults(fresh = false) {
-  const R = analyse(S.samples, opts());
+  const R = analyse(S.samples, liftOpts());
   if (R.error) {
     setMode("mark");
     $("markInstr").textContent = R.error;
@@ -483,7 +486,7 @@ function showResults(fresh = false) {
 
   drawCharts();
   setCursor(S.cursor, true);
-  if (!fresh) queueSave();
+  if (!fresh) saveLift(false);
 }
 
 function drawCharts() {
@@ -591,12 +594,20 @@ for (const b of document.querySelectorAll("#rates button")) {
 /* result actions */
 $("btnFlip").addEventListener("click", () => { S.facingOverride = -S.R.facing; showResults(); });
 $("liftSel").addEventListener("change", () => { if (S.mode === "results") showResults(); });
-let kgTimer = 0;
-const kgDone = () => { kgTimer = 0; if (S.mode === "results") showResults(); };
-$("kg").addEventListener("input", () => { clearTimeout(kgTimer); kgTimer = setTimeout(kgDone, 350); });
-let heightTimer = 0;
-const heightDone = () => { heightTimer = 0; saveSettings(); if (S.mode === "results") showResults(); };
-$("heightCm").addEventListener("input", () => { clearTimeout(heightTimer); heightTimer = setTimeout(heightDone, 350); });
+let inputTimer = 0, heightEdited = false;
+function applyInputEdits() {
+  clearTimeout(inputTimer);
+  inputTimer = 0;
+  if (heightEdited) saveSettings();
+  heightEdited = false;
+  if (S.mode === "results") showResults();
+}
+function queueInputEdit() {
+  clearTimeout(inputTimer);
+  inputTimer = setTimeout(applyInputEdits, 350);
+}
+$("kg").addEventListener("input", queueInputEdit);
+$("heightCm").addEventListener("input", () => { heightEdited = true; queueInputEdit(); });
 $("repsChart").addEventListener("click", (e) => { // a tap: a scroll that starts on the chart doesn't jump
   if (!S.geoReps) return;
   const x = e.clientX - $("repsChart").getBoundingClientRect().left;
@@ -625,8 +636,10 @@ $("btnCsv").addEventListener("click", () => {
 });
 $("btnJson").addEventListener("click", () => {
   const R = S.R, t = (i) => (i === null || i === undefined ? null : +(R.T[i] - R.T[R.t0i]).toFixed(4));
+  const { facingOverride, ...settings } = liftOpts();
+  settings.facing = facingOverride ?? settings.facing;
   const out = {
-    app: "Bar Path", video: { name: S.name, width: S.W, height: S.H, fps: +S.fps.toFixed(2) }, settings: opts(),
+    app: "Bar Path", video: { name: S.name, width: S.W, height: S.H, fps: +S.fps.toFixed(2) }, settings,
     lift: R.lift, title: R.title, recognised: R.liftFrom, facing: R.facing > 0 ? "right" : "left", heights: R.axis.h,
     reps: R.reps ? R.reps.map((r) => ({ rep: r.n, start_s: t(r.begin), range_cm: +(r.rom * 100).toFixed(1), mean_m_s: +r.mean.toFixed(3), peak_m_s: +r.peak.toFixed(3),
       lowering_s: +r.down.toFixed(3), pause_s: +r.pause.toFixed(3), lifting_s: +r.up.toFixed(3), ...(r.power !== undefined ? { mean_lifting_power_w: +r.power.toFixed(1) } : {}), ...(r.depth != null ? { depth_thigh_lengths: +r.depth.toFixed(3) } : {}) })) : undefined,
@@ -647,8 +660,7 @@ function snapshot() {
   return c;
 }
 /** a 3:4 crop of the start frame around the bar's path, with the path drawn on it */
-function thumbnail(R) {
-  const f = S.thumbFrame;
+function thumbnail(R, { thumbFrame: f, W, H }) {
   if (!f) return Promise.resolve(null);
   const [i0, i1] = R.span, pad = 1.5 * R.rpx;
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
@@ -656,10 +668,10 @@ function thumbnail(R) {
   x0 -= pad; x1 += pad; y0 -= pad; y1 += pad;
   let w = x1 - x0, h = y1 - y0;
   if (w / h < 0.75) { x0 -= (0.75 * h - w) / 2; w = 0.75 * h; } else { y0 -= (w / 0.75 - h) / 2; h = w / 0.75; }
-  const fit = Math.min(1, S.W / w, S.H / h);
+  const fit = Math.min(1, W / w, H / h);
   x0 += (w - w * fit) / 2; y0 += (h - h * fit) / 2; w *= fit; h *= fit;
-  x0 = clamp(x0, 0, S.W - w); y0 = clamp(y0, 0, S.H - h);
-  const c = document.createElement("canvas"), g = c.getContext("2d"), k = f.width / S.W;
+  x0 = clamp(x0, 0, W - w); y0 = clamp(y0, 0, H - h);
+  const c = document.createElement("canvas"), g = c.getContext("2d"), k = f.width / W;
   c.width = 150; c.height = 200;
   g.drawImage(f, x0 * k, y0 * k, w * k, h * k, 0, 0, c.width, c.height);
   const s = c.width / w, path = () => { g.beginPath(); for (let i = i0; i <= i1; i++) g[i === i0 ? "moveTo" : "lineTo"]((R.xs[i] - x0) * s, (R.ys[i] - y0) * s); };
@@ -668,39 +680,53 @@ function thumbnail(R) {
   g.lineWidth = 2.5; g.strokeStyle = "#3987e5"; path(); g.stroke();
   return new Promise((res) => c.toBlob(res, "image/jpeg", 0.82));
 }
-const liftOpts = () => ({ plateMm: +$("plateMm").value, slowmo: +$("slowmo").value, facing: +$("facing").value, facingOverride: S.facingOverride, lift: $("liftSel").value, kg: kg(), heightCm: heightCm() });
+let savingLift = Promise.resolve();
 /** keep this analysis: fresh = just tracked (a new lift, or a lift analysed again); otherwise its settings changed */
-async function saveLift(fresh) {
-  if (!S.R || !S.samples || !Store.available() || (!fresh && !S.entryId)) return;
-  const R = S.R, id = S.entryId ?? Store.newId(), isNew = !S.entryId;
+function saveLift(fresh) {
+  if (!S.R || !S.samples || !Store.available()) return;
+  const first = S.firstSave, isNew = fresh && !S.entryId && !first;
+  const id = S.entryId ?? first?.id ?? (isNew ? Store.newId() : null);
+  if (!id) return;
+  const { R, src, thumbFrame, W, H } = S, file = fresh && !S.entryId ? S.file : null;
   const card = { id, filmed: S.filmed, saved: Date.now(), name: S.name, title: R.title, lift: R.lift, kg: kg(), tiles: R.tiles.slice(0, 2).map(({ label, value, unit }) => ({ label, value, unit })) };
-  const data = { samples: S.samples, plate: S.plate, start: S.start, end: S.end, fps: S.fps, opts: liftOpts(), runStats: S.runStats, poseNote: S.poseNote };
-  try {
-    if (fresh) {
-      card.thumb = await thumbnail(R);
-      await Store.put(card, data, isNew ? S.file : null);
-      S.entryId = id;
-      galleryCount();
-      updateTrim();
-    } else await Store.update(id, card, { opts: data.opts });
-    $("resSaved").textContent = tr("res.saved.ok");
-    $("btnDelete").hidden = false;
-  } catch (e) {
-    $("resSaved").textContent = tr("res.saved.failed", { error: e?.message || e });
-  }
+  const data = { samples: S.samples, plate: { ...S.plate }, start: S.start, end: S.end, fps: S.fps, opts: liftOpts(), runStats: S.runStats, poseNote: S.poseNote };
+  const isCurrent = () => S.src === src && (S.entryId ?? S.firstSave?.id) === id;
+  savingLift = savingLift.then(async () => {
+    try {
+      if (fresh) {
+        card.thumb = await thumbnail(R, { thumbFrame, W, H });
+        await Store.put(card, data, file);
+        galleryCount();
+        if (isCurrent()) {
+          S.entryId = id;
+          S.firstSave = null;
+          updateTrim();
+        }
+      } else {
+        if (first && !(await first.done)) return false;
+        await Store.update(id, card, { opts: data.opts });
+      }
+      if (isCurrent()) {
+        $("resSaved").textContent = tr("res.saved.ok");
+        $("btnDelete").hidden = false;
+      }
+      return true;
+    } catch (e) {
+      if (isCurrent()) {
+        if (isNew) S.firstSave = null;
+        $("resSaved").textContent = tr("res.saved.failed", { error: e?.message || e });
+      }
+      return false;
+    }
+  });
+  if (isNew) S.firstSave = { id, done: savingLift };
 }
-let saveTimer = 0;
-const queueSave = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => { saveTimer = 0; saveLift(false); }, 400); };
-/** a queued save done now, with a load or height still being typed: before something reads the saved lift back
- * (keeping only the analysed part) */
-const flushSave = async () => {
-  if (kgTimer) { clearTimeout(kgTimer); kgDone(); }
-  if (heightTimer) { clearTimeout(heightTimer); heightDone(); }
-  if (!saveTimer) return;
-  clearTimeout(saveTimer);
-  saveTimer = 0;
-  await saveLift(false);
-};
+
+/** commit any pending input before leaving results or reading the stored analysis for trimming */
+function flushSave() {
+  if (inputTimer) applyInputEdits();
+  return savingLift;
+}
 
 const GAL = new Gallery(
   { list: $("galList"), filters: $("galFilters"), summary: $("galSummary"), status: $("galStatus"), empty: $("galEmpty"), bar: $("galBar"), barText: $("galBarText"), compare: $("btnGalCompare"), remove: $("btnGalDelete"), trim: $("btnGalTrim") },
@@ -721,36 +747,55 @@ async function galleryCount() {
 
 /* screens you can go back from with the phone's Back: each gets a history entry, and the one it was opened from
  * is remembered on the entry before it */
-function push(screen) {
-  history.replaceState({ ...history.state, screen: history.state?.screen ?? S.mode }, "");
-  history.pushState({ screen }, "");
+let historyVersion = 0;
+function push(screen, state = {}) {
+  const previous = { ...history.state, screen: history.state?.screen ?? S.mode };
+  if (S.mode === "results" && S.entryId) previous.id = S.entryId;
+  history.replaceState(previous, "");
+  history.pushState({ screen, ...state }, "");
+  historyVersion++;
 }
 async function showGallery(fromHistory = false) {
   if (!fromHistory && S.mode !== "gallery") push("gallery");
   if (S.mode === "compare") CMP.close();
   setMode("gallery");
-  await GAL.refresh();
+  await savingLift;
+  if (S.mode === "gallery") await GAL.refresh();
 }
-async function openSaved(id) {
+async function openSaved(id, fromHistory = false) {
+  const version = historyVersion;
+  await flushSave();
   const got = await Store.get(id).catch(() => null);
-  if (!got) { GAL.refresh(); return; }
-  push("lift");
+  if (historyVersion !== version || (!fromHistory && S.mode !== "gallery")) return;
+  if (!got) return showGallery(true);
+  if (!fromHistory) push("lift", { id });
   const type = got.video.type || "video/mp4";
   await openVideo(new File([got.video], got.card.name, { type }), got.card.name, false, got);
 }
-async function openCompare(ids) {
+async function openCompare(ids, fromHistory = false) {
+  const version = historyVersion;
+  await flushSave();
   const items = (await Promise.all(ids.map((id) => Store.get(id).catch(() => null)))).filter(Boolean);
-  if (items.length < 2) return;
-  push("compare");
+  if (historyVersion !== version || (!fromHistory && S.mode !== "gallery")) return;
+  if (items.length < 2) return showGallery(true);
+  if (!fromHistory) push("compare", { ids });
   setMode("compare");
-  await CMP.open(items);
+  const opening = historyVersion;
+  const opened = await CMP.open(items).catch(() => false);
+  if (!opened && S.mode === "compare" && historyVersion === opening) await showGallery(true);
 }
 window.addEventListener("popstate", (e) => {
+  historyVersion++;
   const to = e.state?.screen ?? "start";
   if (S.mode === "running") S.abort?.abort();
   if (S.mode === "compare" && to !== "compare") CMP.close();
   if (to === "gallery") return showGallery(true);
-  if ((to === "results" || to === "lift") && S.R) { setMode("results"); drawCharts(); return seekTo(video.currentTime); }
+  if (to === "compare" && e.state.ids) return openCompare(e.state.ids, true);
+  if (to === "results" || to === "lift") {
+    const id = e.state.id;
+    if (id && (!S.R || S.entryId !== id)) return openSaved(id, true);
+    if (S.R) { setMode("results"); drawCharts(); return seekTo(video.currentTime); }
+  }
   if (to === "mark" && S.src) { setMode("mark"); return seekTo(S.start); }
   stopPlayback();
   setMode("start");
@@ -785,7 +830,7 @@ async function updateTrim() {
   } catch { /* not an MP4 (a WebM recording), or no video track: nothing to offer */ }
 }
 $("btnTrim").addEventListener("click", async () => {
-  const p = trimPlan;
+  const p = trimPlan, src = S.src;
   if (!p || p.card.id !== S.entryId) return;
   const ask = tr("res.trim.confirm", { before: mb(p.r.before), after: mb(p.r.after) }) + (S.blob ? `\n\n${tr("res.trim.confirmRecorded")}` : "");
   if (!confirm(ask)) return;
@@ -794,11 +839,13 @@ $("btnTrim").addEventListener("click", async () => {
     await flushSave(); // settings changed a moment ago go with it
     await Store.applyTrim(p);
     const got = await Store.get(p.card.id);
+    if (S.src !== src || S.mode !== "results") return;
     // open it again on the shorter video (its times moved with it); no new history entry
     await openVideo(new File([got.video], got.card.name, { type: got.video.type || "video/mp4" }), got.card.name, false, got);
     $("resSaved").textContent = tr("res.trim.done", { size: mb(p.r.after) });
     galleryCount();
   } catch (e) {
+    if (S.src !== src) return;
     $("trimInfo").textContent = tr("res.trim.failed", { err: e?.message || e });
     $("btnTrim").disabled = false;
   }
@@ -813,17 +860,27 @@ const stamp = () => { const d = new Date(), p = (n) => String(n).padStart(2, "0"
 // 30, its camera app 60), and speeds need the frames. The in-app camera, with its level, stays one tap away.
 $("btnRecord").addEventListener("click", () => $("captureInput").click());
 $("btnCamLevel").addEventListener("click", () => openCam());
+let cameraOpening = null;
 async function openCam() {
+  const opening = new AbortController();
+  cameraOpening = opening;
+  const cv = $("camVideo");
+  $("btnRecToggle").disabled = true;
   setMode("camera");
   $("camInfo").textContent = tr("camera.opening");
+  let camera;
   try {
-    S.cam = await Rec.openCamera($("camVideo"));
+    camera = await Rec.openCamera(cv, opening.signal);
   } catch (e) {
+    if (opening.signal.aborted) return;
     setMode("start");
     $("recordHint").textContent = tr("camera.failed", { error: e?.message || e });
     return;
   }
-  const cv = $("camVideo"), st = S.cam.settings;
+  if (opening.signal.aborted) return;
+  S.cam = camera;
+  $("btnRecToggle").disabled = false;
+  const st = camera.settings;
   Ov.fitViewer($("camViewer"), cv.videoWidth || st.width || 16, cv.videoHeight || st.height || 9);
   const fps = st.frameRate ? Math.round(st.frameRate) : null;
   $("camInfo").textContent = `${tr(fps ? "camera.infoFps" : "camera.info", { w: cv.videoWidth, h: cv.videoHeight, fps })} ${tr(fps && fps < 50 ? "camera.info.slow" : "camera.info.ok")}`;
@@ -835,15 +892,18 @@ async function openCam() {
     $("level").querySelector(".bubble").style.transform = `rotate(${(-roll).toFixed(1)}deg)`;
     $("levelRead").textContent = ok ? tr("camera.level.ok") : tr(pitch > 0 ? "camera.level.up" : "camera.level.down", { roll: fmtSigned(roll, 1), pitch: num(Math.abs(pitch), 0) });
   });
-  setTimeout(() => { if (!seen) $("levelRead").textContent = tr("camera.level.noSensor"); }, 1500);
+  setTimeout(() => { if (!seen && !opening.signal.aborted) $("levelRead").textContent = tr("camera.level.noSensor"); }, 1500);
 }
 function closeCam() {
+  cameraOpening?.abort();
+  cameraOpening = null;
   S.stopLevel?.(); S.stopLevel = null;
-  Rec.closeCamera($("camVideo"), S.cam?.stream);
+  Rec.closeCamera($("camVideo"));
   S.cam = null; S.recorder = null;
   clearInterval(S.recTimer);
   $("recBadge").hidden = true;
   const b = $("btnRecToggle");
+  b.disabled = true;
   b.dataset.on = "0"; b.textContent = tr("camera.start");
 }
 $("btnRecToggle").addEventListener("click", async () => {
@@ -856,13 +916,13 @@ $("btnRecToggle").addEventListener("click", async () => {
     S.recTimer = setInterval(() => { $("recTime").textContent = num((performance.now() - t0) / 1000, 1); }, 100);
   } else {
     b.disabled = true;
-    const blob = await S.recorder.stop();
-    b.disabled = false;
-    closeCam();
+    const recorder = S.recorder;
+    const blob = await recorder.stop();
+    if (S.recorder !== recorder) return;
     openVideo(blob, stamp(), true);
   }
 });
-$("btnCamClose").addEventListener("click", () => { closeCam(); setMode("start"); });
+$("btnCamClose").addEventListener("click", () => setMode("start"));
 
 /* ------------------------------------------------------------------ settings changes */
 for (const id of ["plateMm", "slowmo"]) $(id).addEventListener("change", () => { saveSettings(); if (S.mode === "results") showResults(); });

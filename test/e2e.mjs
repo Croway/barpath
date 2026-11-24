@@ -4,6 +4,7 @@
 //   node test/e2e.mjs . <video.mp4> <truth.json | -> <out dir> [--at s] [--end s] [--tap x,y] [--pose off|lite|full] [--dark]
 //   synthetic: node test/synth.mjs /tmp/s.mp4 && node test/e2e.mjs . /tmp/s.mp4 /tmp/s.truth.json /tmp/out
 import { chromium } from "playwright-core";
+import assert from "node:assert/strict";
 import http from "node:http";
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, extname, resolve, sep } from "node:path";
@@ -12,6 +13,7 @@ import jsQR from "jsqr";
 const [appDir, videoPath, truthPath, outDir] = process.argv.slice(2);
 const arg = (k, d) => { const i = process.argv.indexOf("--" + k); return i >= 0 ? process.argv[i + 1] : d; };
 const camera = arg("camera", null), pose = arg("pose", "full"), dark = process.argv.includes("--dark");
+const checkOffline = process.argv.includes("--check-offline");
 const T = truthPath && truthPath !== "-" ? JSON.parse(readFileSync(truthPath, "utf8")) : null;
 const tapArg = arg("tap", null);
 
@@ -28,7 +30,7 @@ const url = `http://localhost:${server.address().port}/`;
 const args = ["--autoplay-policy=no-user-gesture-required"];
 if (camera) args.push("--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", `--use-file-for-fake-video-capture=${camera}`);
 const browser = await chromium.launch({ channel: "chrome", headless: true, args });
-const ctx = await browser.newContext({ viewport: { width: 360, height: 780 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, colorScheme: dark ? "dark" : "light", permissions: camera ? ["camera"] : [] });
+const ctx = await browser.newContext({ viewport: { width: 360, height: 780 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, locale: "en-US", colorScheme: dark ? "dark" : "light", permissions: camera ? ["camera"] : [] });
 const page = await ctx.newPage();
 const cdp = await ctx.newCDPSession(page);
 /** a finger dragged across the screen (CSS px), as the phone delivers it: touch → pointer events */
@@ -201,8 +203,22 @@ const second = await page.evaluate(() => ({ title: window.__barpath.R.title, fra
 console.log("second lift:", JSON.stringify(second));
 
 await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-await page.tap("#btnGallery2");
+const recentId = await page.evaluate(() => {
+  for (const [id, value] of [["kg", "71"], ["heightCm", "170"]]) {
+    const input = document.getElementById(id);
+    input.value = value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  document.getElementById("btnGallery2").click();
+  return window.__barpath.entryId;
+});
 await page.waitForFunction(() => document.querySelectorAll("#galList .lift").length === 2, null, { timeout: 10000 });
+const recentOpts = await page.evaluate(async (id) => {
+  const store = await import("./js/store.js");
+  return (await store.get(id)).data.opts;
+}, recentId);
+assert.equal(recentOpts.kg, 71, "the load survives immediate navigation to Gallery");
+assert.equal(recentOpts.heightCm, 170, "the height survives immediate navigation to Gallery");
 await page.waitForTimeout(300);
 console.log("gallery:", await page.textContent("#galSummary"), "|", (await page.$$eval("#galList .lift .txt", (a) => a.map((e) => e.innerText.replace(/\n/g, " / ")))).join(" || "));
 await page.screenshot({ path: `${outDir}/10-gallery.png` });
@@ -214,11 +230,18 @@ const watch = setInterval(async () => { if (await page.isVisible("#running").cat
 await page.tap("#galList .lift:last-child .open");
 await page.waitForFunction(() => !document.getElementById("results").hidden && /From the gallery/.test(document.getElementById("resSaved").textContent), null, { timeout: 30000 });
 clearInterval(watch);
-const reopened = await page.evaluate(() => ({ title: window.__barpath.R.title, frames: window.__barpath.samples.length, start: window.__barpath.start, kg: window.__barpath.R.kg, input: document.getElementById("kg").value }));
+const reopened = await page.evaluate(() => ({ title: window.__barpath.R.title, frames: window.__barpath.samples.length, start: window.__barpath.start, kg: window.__barpath.R.kg, input: document.getElementById("kg").value, height: document.getElementById("heightCm").value }));
 if (reopened.kg !== 60 || reopened.input !== "60") throw new Error("the saved lift should keep its load");
+assert.equal(reopened.height, "", "a saved lift without height clears the previous lift's height");
 console.log(`reopened in ${((Date.now() - t1) / 1000).toFixed(1)} s, tracked again: ${tracked}:`, JSON.stringify(reopened));
 if (tracked || reopened.frames !== R.frames) throw new Error("reopening a saved lift should bring back its frames, not track again");
 await page.screenshot({ path: `${outDir}/11-reopened.png` });
+const corrected = await page.evaluate(() => {
+  const { entryId, R } = window.__barpath;
+  const facing = -R.facing;
+  document.getElementById("btnFlip").click();
+  return { id: entryId, facing };
+});
 await page.goBack(); // the phone's Back: to the gallery
 await page.waitForSelector("#gallery:not([hidden])");
 
@@ -227,6 +250,8 @@ for (const b of await page.$$("#galList .pick input")) await b.check();
 await page.tap("#btnGalCompare");
 await page.waitForSelector("#compare:not([hidden])");
 await page.waitForFunction(() => { const C = window.__barpathCompare; return C.L.length === 2 && C.L.every((l) => l.video.readyState >= 2 && !l.busy); }, null, { timeout: 30000 });
+const compared = await page.evaluate(() => window.__barpathCompare.L.map(({ card, R }) => ({ id: card.id, facing: R.facing })));
+assert.deepEqual(compared.find(({ id }) => id === corrected.id), corrected, "Compare keeps the saved facing correction");
 await page.waitForTimeout(300);
 await page.screenshot({ path: `${outDir}/12-compare.png` });
 await page.screenshot({ path: `${outDir}/13-compare-full.png`, fullPage: true });
@@ -245,6 +270,26 @@ const playing = await page.evaluate(() => { const C = window.__barpathCompare; r
 console.log("compare play:", JSON.stringify(playing));
 await page.tap("#cmpPlay");
 
+await page.goBack();
+await page.waitForSelector("#gallery:not([hidden])");
+await page.goForward();
+await page.waitForSelector("#compare:not([hidden])");
+await page.waitForFunction(() => window.__barpathCompare.L.length === 2 && window.__barpathCompare.L.every((l) => l.video.readyState >= 2 && !l.busy));
+assert.deepEqual(await page.evaluate(() => window.__barpathCompare.L.map(({ card, R }) => ({ id: card.id, facing: R.facing }))), compared, "Forward restores the same comparison");
+
+if (T && endAt) {
+  const stillExists = await page.evaluate(async (id) => {
+    const store = await import("./js/store.js");
+    const { card, data, video } = await store.get(id), copy = store.newId();
+    await store.put({ ...card, id: copy }, data, video);
+    const plan = await store.planTrim(copy);
+    const [, deletion] = await Promise.allSettled([store.applyTrim(plan), store.remove(copy)]);
+    if (deletion.status === "rejected") throw deletion.reason;
+    return !!await store.get(copy);
+  }, corrected.id);
+  assert.equal(stillExists, false, "an overlapping trim never brings back a deleted lift");
+}
+
 // kept across a reload; delete one
 await page.reload();
 await page.waitForFunction(() => document.getElementById("btnGallery").textContent === "Gallery · 2", null, { timeout: 10000 });
@@ -254,6 +299,33 @@ await (await page.$("#galList .lift:first-child .pick input")).check();
 await page.tap("#btnGalDelete");
 await page.waitForFunction(() => document.querySelectorAll("#galList .lift").length === 1, null, { timeout: 10000 });
 console.log("after a reload and deleting one:", await page.textContent("#galSummary"));
+
+await page.reload();
+await page.evaluate(() => {
+  const stream = document.createElement("canvas").captureStream();
+  window.testCameraTrack = stream.getVideoTracks()[0];
+  navigator.mediaDevices.getUserMedia = () => new Promise((resolve) => { window.releaseCamera = () => resolve(stream); });
+});
+await page.tap("#btnCamLevel");
+assert.equal(await page.isDisabled("#btnRecToggle"), true, "record waits for the camera to open");
+await page.tap("#btnCamClose");
+await page.evaluate(() => window.releaseCamera());
+await page.waitForFunction(() => window.testCameraTrack.readyState === "ended");
+assert.equal(await page.evaluate(() => document.getElementById("camVideo").srcObject), null, "Close releases a late camera stream");
+}
+
+if (checkOffline) {
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+  await page.evaluate(() => localStorage.setItem("barpath.lang", "it"));
+  await ctx.setOffline(true);
+  await page.reload();
+  await page.waitForFunction(() => document.documentElement.lang === "it" && !!window.__barpathCompare);
+  const models = await page.evaluate(async () => {
+    const responses = await Promise.all(["full", "lite"].map((kind) => fetch(`vendor/mediapipe/pose_landmarker_${kind}.task`)));
+    return responses.map((r) => r.ok);
+  });
+  assert.deepEqual(models, [true, true], "a fresh installation can open the Italian app and fetch both pose models offline");
+  console.log("offline startup and model cache passed");
 }
 console.log(errors.length ? "PAGE ERRORS:\n" + errors.join("\n") : "no page errors");
 await browser.close();

@@ -5,21 +5,28 @@
 export const canRecordInApp = () =>
   !!(window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
 
-export async function openCamera(video) {
+export async function openCamera(video, signal) {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
     video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60 } },
   });
-  video.srcObject = stream;
-  video.muted = true;
-  await video.play();
-  const track = stream.getVideoTracks()[0];
-  return { stream, track, settings: track.getSettings?.() || {} };
+  try {
+    signal?.throwIfAborted();
+    video.srcObject = stream;
+    video.muted = true;
+    await video.play();
+    signal?.throwIfAborted();
+    const track = stream.getVideoTracks()[0];
+    return { stream, track, settings: track.getSettings?.() || {} };
+  } catch (error) {
+    closeCamera(video, stream);
+    throw error;
+  }
 }
 
-export function closeCamera(video, stream) {
+export function closeCamera(video, stream = video.srcObject) {
   stream?.getTracks().forEach((t) => t.stop());
-  video.srcObject = null;
+  if (video.srcObject === stream) video.srcObject = null;
 }
 
 function pickType() {

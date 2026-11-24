@@ -37,6 +37,7 @@ const times = (f) => {
   return md5.map((m, i) => ({ pts: pts[i], md5: m }));
 };
 const streams = (f) => run("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", f]).trim().split("\n");
+const audioPackets = (f) => JSON.parse(run("ffprobe", ["-v", "error", "-select_streams", "a:0", "-show_packets", "-show_data_hash", "sha256", "-show_entries", "packet=pts_time,data_hash", "-of", "json", f])).packets;
 
 let failed = 0;
 const ok = (cond, msg) => { console.log(`${cond ? "ok  " : "FAIL"} ${msg}`); if (!cond) failed++; };
@@ -62,6 +63,20 @@ for (const [name, args] of Object.entries(CASES)) {
   let code = null;
   try { await trimVideo(blob, 0, null); } catch (e) { code = e.code; }
   ok(code === "nothing", `${name}: the whole video → "nothing" (${code})`);
+}
+{
+  const src = join(dir, "delayed.mp4"), out = join(dir, "delayed-cut.mp4");
+  run("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30:duration=6",
+    "-itsoffset", "2.5", "-f", "lavfi", "-i", "sine=frequency=440:duration=3.5",
+    "-c:v", "libx264", "-g", "30", "-sc_threshold", "0", "-c:a", "aac", src]);
+  const original = audioPackets(src);
+  for (const from of [1.2, 3.2]) {
+    const cut = await trimVideo(new Blob([readFileSync(src)]), from, 5);
+    writeFileSync(out, Buffer.from(await cut.blob.arrayBuffer()));
+    const copied = audioPackets(out);
+    ok(copied.length > 0 && copied.every((p) => original.some((q) => p.data_hash === q.data_hash && Math.abs(+p.pts_time + cut.offset - +q.pts_time) < 0.0011)),
+      `AAC cut from ${cut.start.toFixed(3)} s: copied packets keep their original timing relative to video`);
+  }
 }
 let code = null;
 run("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=160x120:rate=30:duration=2", "-c:v", "libvpx", join(dir, "w.webm")]);

@@ -263,10 +263,20 @@ export async function trimVideo(blob, from, to = null) {
   const offset = (d0 - vid.mediaTime + newMediaTime) / vid.timescale + vid.empty / movieScale;
   const span = Math.max(...keptV.map((s) => s.dts - d0 + s.cto + s.dur)) - newMediaTime; // what the edit shows
   const kept = new Map([[vid, keptV.map((s) => ({ ...s, dts: s.dts - d0 }))]]);
+  const timing = new Map([[vid, { delay: 0, mediaTime: newMediaTime }]]);
   for (const t of tracks) {
     if (t === vid) continue;
-    const ks = t.samples.filter((s) => { const p = ptsOf(t, s); return p >= start - 1e-6 && p < end - 1e-6; });
-    if (ks.length) kept.set(t, ks.map((s) => ({ ...s, dts: s.dts - ks[0].dts })));
+    const ks = t.samples.filter((s) => {
+      const p = ptsOf(t, s);
+      return p < end - 1e-6 && (p >= start - 1e-6 || (t.handler === "soun" && p + s.dur / t.timescale > start + 1e-6));
+    });
+    if (!ks.length) continue;
+    const first = ks[0];
+    const origin = ptsOf(t, first) - first.cto / t.timescale - offset;
+    // Keep the original start relative to the video. An empty edit delays a track; a media edit skips any
+    // part of the first audio packet that belongs before the cut.
+    timing.set(t, { delay: Math.max(0, Math.round(origin * movieScale)), mediaTime: Math.max(0, Math.round(-origin * t.timescale)) });
+    kept.set(t, ks.map((s) => ({ ...s, dts: s.dts - first.dts })));
   }
 
   // where the samples go: in the old file's order (keeps audio and video interleaved), runs of adjacent bytes as one
@@ -282,13 +292,19 @@ export async function trimVideo(blob, from, to = null) {
     let movieDur = 0;
     const traks = [];
     for (const [t, ks] of kept) {
-      const mediaDur = ks.reduce((a, s) => a + s.dur, 0), trackDur = (mediaDur * movieScale) / t.timescale;
+      const { delay, mediaTime } = timing.get(t);
+      const mediaDur = ks.reduce((a, s) => a + s.dur, 0);
+      const editSpan = t === vid ? span : ks.reduce((end, s) => Math.max(end, s.dts + s.cto + s.dur), 0) - mediaTime;
+      const editedDur = Math.round(editSpan * movieScale / t.timescale);
+      const trackDur = t === vid ? mediaDur * movieScale / t.timescale : delay + editedDur;
       movieDur = Math.max(movieDur, trackDur);
       const minfParts = [...boxes(dv, t.minf.body, t.minf.end)].filter((c) => c.type !== "stbl").map((c) => copy(dv, c));
       const mdiaParts = [...boxes(dv, t.mdia.body, t.mdia.end)].filter((c) => !["mdhd", "minf"].includes(c.type)).map((c) => copy(dv, c));
-      const edit = t === vid && newMediaTime > 0
-        ? [box("edts", full("elst", 0, 0, u32(1), u32(Math.round((span * movieScale) / t.timescale)), i32(newMediaTime), u32(0x10000)))]
-        : [];
+      const edit = [];
+      if (delay || mediaTime) {
+        const rate = u32(0x10000), empty = delay ? [u32(delay), i32(-1), rate] : [];
+        edit.push(box("edts", full("elst", 0, 0, u32(delay ? 2 : 1), ...empty, u32(editedDur), i32(mediaTime), rate)));
+      }
       traks.push(box("trak", withDuration(dv, t.tkhd, trackDur, TKHD), ...edit,
         box("mdia", withDuration(dv, t.mdhd, mediaDur, MDHD), ...mdiaParts, box("minf", ...minfParts, stbl(dv, t, ks, ks.map((s) => s.newOff))))));
     }

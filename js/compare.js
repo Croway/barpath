@@ -55,6 +55,7 @@ export class Compare {
       const R = analyse(it.data.samples, it.data.opts);
       return { card: it.card, data: it.data, blob: it.video, k, R, color: `--s${k + 1}` };
     }).filter((l) => !l.R.error);
+    if (this.L.length < 2) { this.L = []; return false; }
     const lifts = new Set(this.L.map((l) => l.R.lift));
     r.note.hidden = lifts.size < 2;
     r.note.textContent = lifts.size < 2 ? "" : tr("compare.differentLifts", { lifts: [...lifts].map((x) => LIFTS[x]).join(", ") });
@@ -86,13 +87,20 @@ export class Compare {
       r.videos.append(tile);
       Object.assign(l, { video, canvas, view, url: URL.createObjectURL(l.blob), busy: null, want: null });
     }
-    await Promise.all(this.L.map(async (l) => {
-      const info = await V.load(l.video, l.url);
-      Object.assign(l, { W: info.W, H: info.H });
-      Ov.fitViewer(l.view, info.W, info.H);
-    }));
+    const liftsBeingLoaded = this.L;
+    try {
+      await Promise.all(liftsBeingLoaded.map(async (l) => {
+        const info = await V.load(l.video, l.url);
+        Object.assign(l, { W: info.W, H: info.H });
+        Ov.fitViewer(l.view, info.W, info.H);
+      }));
+    } catch (error) {
+      if (this.L === liftsBeingLoaded) throw error;
+    }
+    if (this.L !== liftsBeingLoaded) return false;
     this.table();
     this.go(0);
+    return true;
   }
 
   close() {

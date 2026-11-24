@@ -1,10 +1,10 @@
 /* Service worker: makes the installed app work offline, and receives videos shared to it.
  *
  *  - App files: network first (so a reachable server always delivers the latest), cache when offline.
- *  - vendor/ (MediaPipe runtime and pose models, ~19 MB precached): cache first; they never change for a version.
+ *  - vendor/ (MediaPipe runtime and both pose models precached): cache first; they never change for a version.
  *  - POST ./share (the manifest's share target): keeps the shared video, then opens the app with ?shared=1.
  */
-const SHELL = "barpath-shell-v8";
+const SHELL = "barpath-shell-v9";
 const VENDOR = "barpath-vendor-0.10.21";
 const SHARE = "barpath-share";
 const SHELL_FILES = [
@@ -15,7 +15,7 @@ const SHELL_FILES = [
 ];
 const VENDOR_FILES = [
   "vendor/mediapipe/vision_bundle.mjs", "vendor/mediapipe/wasm/vision_wasm_internal.js",
-  "vendor/mediapipe/wasm/vision_wasm_internal.wasm", "vendor/mediapipe/pose_landmarker_full.task",
+  "vendor/mediapipe/wasm/vision_wasm_internal.wasm", "vendor/mediapipe/pose_landmarker_full.task", "vendor/mediapipe/pose_landmarker_lite.task",
 ];
 
 self.addEventListener("install", (e) => {

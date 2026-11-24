@@ -254,6 +254,7 @@ function recognise(sig, chosen) {
  * opts: {plateMm=450, slowmo=1, facing: 1 right | -1 left | 0 auto, lift: 'auto' | one of LIFTS, kg: the load, for power}
  */
 export function analyse(samples, opts = {}) {
+  if (opts.facingOverride != null) opts = { ...opts, facing: opts.facingOverride };
   const sig = prepare(samples, opts);
   if (sig.error) return sig;
   const chosen = opts.lift && opts.lift !== "auto" ? opts.lift : opts.type && opts.type !== "auto" ? opts.type : null;
@@ -800,7 +801,7 @@ function reps(sig, opts, lift) {
   const variant = lift === "press" && R.some((r) => r.dip > 0.04 && r.peak > 1.0) ? tr("variant.pushPress") : null;
   const sd = (a) => { const m = a.reduce((x, y) => x + y, 0) / a.length; return Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / a.length); };
 
-  const stages = [], stageOf = new Int8Array(n).fill(-1), repOf = new Int16Array(n);
+  const stages = [], stageOf = new Int32Array(n).fill(-1), repOf = new Int16Array(n);
   const add = (id, a, b, rep) => { if (b > a) stages.push({ id, ...STAGES[id], i0: a, i1: b, dur: (b - a) / fs, rep }); };
   for (const r of R) {
     const e = Math.min(n, r.end + 1); // stages are [i0, i1); begin..end are the rep's moving samples

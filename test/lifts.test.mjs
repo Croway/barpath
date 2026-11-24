@@ -147,6 +147,13 @@ ok(/below parallel/.test(R.title), "title says below parallel");
   ok(!R.metrics.some((m) => m.group === "Power"), "no power without a load");
 }
 run("squat, bar only", noPose(sq), { lift: "squat", from: "bar", reps: 5 });
+ok(analyse(sq, { facing: -1, facingOverride: 1 }).facing === 1, "a saved facing correction takes precedence");
+{
+  const reps = 50;
+  const samples = noPose(set(squat, { reps, first: 1, pause: 0.4, second: Array(reps).fill(0.8), rest: 0.6 }));
+  const result = analyse(samples, { lift: "squat" });
+  ok(result.reps.length === reps && result.stages.length > 128 && result.stages.every((stage, i) => result.stageOf[stage.i0] === i), "phase labels persist across a 50-rep set");
+}
 R = run("squat, bar drifts forward", set((u, k) => squat(u, k, 0.1), { reps: 3, first: 1.0, pause: 0.15, second: [0.8, 0.8, 0.8], rest: 0.6 }), { lift: "squat", reps: 3 });
 ok(R.checks.find((c) => c.title === "Bar path")?.status !== "good", "forward drift is flagged");
 

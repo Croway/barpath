@@ -111,12 +111,27 @@ export async function planTrim(id) {
  * picked, …) are kept. A plan for a part that has moved since, or a video already cut, is refused. */
 export async function applyTrim(p) {
   const { r } = p, id = p.card.id;
-  const [card, data] = await tx(["lifts", "data"], "readonly", (s) => [s.lifts.get(id), s.data.get(id)]);
-  if (!card || !data) throw new Error("not in the gallery any more");
-  if (card.trimmed || data.start !== p.data.start || (data.end ?? null) !== (p.data.end ?? null)) throw new Error("changed since: open it again");
+  const video = (await canStoreBlobs()) ? r.blob : await pack(r.blob);
   const shift = (t) => (t === null || t === undefined ? t : t - r.offset);
-  const moved = { ...data, start: shift(data.start), end: shift(data.end), samples: data.samples.map((s) => ({ ...s, t: s.t - r.offset })) };
-  return put({ ...card, trimmed: true, bytes: r.after }, moved, r.blob);
+  const outcome = await tx(STORES, "readwrite", (s) => {
+    const cardReq = s.lifts.get(id), dataReq = s.data.get(id), videoReq = s.videos.getKey(id);
+    const result = {};
+    videoReq.onsuccess = () => {
+      const card = cardReq.result, data = dataReq.result;
+      if (!card || !data || videoReq.result === undefined) {
+        result.error = "not in the gallery any more";
+      } else if (card.trimmed || data.start !== p.data.start || (data.end ?? null) !== (p.data.end ?? null)) {
+        result.error = "changed since: open it again";
+      } else {
+        const samples = data.samples.map((sample) => ({ ...sample, t: shift(sample.t) }));
+        s.lifts.put({ ...card, trimmed: true, bytes: r.after });
+        s.data.put({ ...data, start: shift(data.start), end: shift(data.end), samples });
+        s.videos.put({ id, blob: video });
+      }
+    };
+    return result;
+  });
+  if (outcome.error) throw new Error(outcome.error);
 }
 /** bytes used on this device, when the browser says */
 export async function usage() {
