@@ -1,15 +1,15 @@
 /* Service worker: makes the installed app work offline, and receives videos shared to it.
  *
  *  - App files: network first (so a reachable server always delivers the latest), cache when offline.
- *  - vendor/ (MediaPipe runtime and both pose models precached): cache first; they never change for a version.
+ *  - vendor/: precache MediaPipe and cache the versioned squat-depth model on first use.
  *  - POST ./share (the manifest's share target): keeps the shared video, then opens the app with ?shared=1.
  */
-const SHELL = "barpath-shell-v11";
+const SHELL = "barpath-shell-v12";
 const VENDOR = "barpath-vendor-0.10.21";
 const SHARE = "barpath-share";
 const SHELL_FILES = [
   "./", "index.html", "manifest.webmanifest", "css/app.css",
-  "js/app.js", "js/analysis.js", "js/charts.js", "js/overlay.js", "js/plate.js", "js/pose.js", "js/recorder.js", "js/video.js",
+  "js/app.js", "js/analysis.js", "js/charts.js", "js/overlay.js", "js/plate.js", "js/pose.js", "js/squat-pose.js", "js/recorder.js", "js/video.js",
   "js/trim.js", "js/share.js", "js/qr.js", "js/store.js", "js/gallery.js", "js/compare.js", "js/i18n.js", "js/clip.js", "locales/en.js", "locales/it.js",
   "icons/icon.svg", "icons/favicon.svg", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png",
 ];
@@ -52,7 +52,7 @@ async function cacheFirst(req, name) {
   const hit = await c.match(req, { ignoreSearch: true });
   if (hit) return hit;
   const res = await fetch(req);
-  if (res.ok) await c.put(req, res.clone());
+  if (res.ok) await c.put(req, res.clone()).catch(() => {}); // a full cache can still serve the network response
   return res;
 }
 

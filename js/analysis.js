@@ -694,31 +694,46 @@ function squatLeanReader(sig, facing) {
 function squatDepthReader(sig, facing) {
   const legs = ["l", "r"].map(side => {
     const hip = LM[side + "Hip"], knee = LM[side + "Knee"];
-    const lengths = sig.samples.filter(s => s.pose && seen(s.pose[hip], s.pose[knee])).map(s => distance(s.pose[hip], s.pose[knee]));
-    return { side, hip, knee, reference: median(lengths) };
+    const primary = [], combined = [];
+    for (const s of sig.samples) {
+      const h = s.pose?.[hip], k = s.pose?.[knee], leg = s.depthLegs?.[side];
+      if (seen(h, k)) primary.push(distance(h, k));
+      if (seen(leg?.hip ?? h, leg?.knee ?? k)) combined.push(distance(leg?.hip ?? h, leg?.knee ?? k));
+    }
+    return { side, hip, knee, primary: median(primary), combined: median(combined) };
   });
-  return (bottom) => {
-    const half = Math.max(0.065, 1.6 / sig.fs);
-    const frames = sig.samples.filter(s => Math.abs(sig.real(s.t) - bottom) <= half);
+  const half = Math.max(0.065, 1.6 / sig.fs);
+  function estimatesAt(bottom, frames, refined) {
     const estimates = [];
-    for (const { side, hip, knee, reference } of legs) {
-      const valid = [];
+    for (const { side, hip, knee, primary, combined } of legs) {
+      const valid = [], reference = refined ? combined : primary;
       for (const s of frames) {
-        const leg = s.recoveredLeg?.side === side ? s.recoveredLeg : null;
-        const h = s.pose?.[hip] ?? leg?.hip, k = s.pose?.[knee] ?? leg?.knee;
+        const recovered = s.recoveredLeg?.side === side ? s.recoveredLeg : null;
+        const leg = refined ? s.depthLegs[side] : null;
+        const h = leg?.hip ?? s.pose?.[hip] ?? recovered?.hip, k = leg?.knee ?? s.pose?.[knee] ?? recovered?.knee;
         if (!h || !k) continue;
         const len = distance(h, k);
         if (Math.min(h.v, k.v) < (side === sig.side ? 0.5 : 0.65) || !(len >= 0.5 * reference && len > 0 && len <= 1.6 * reference)) continue;
         if (facing && facing * (k.x - h.x) < 0) continue;
-        valid.push({ t: sig.real(s.t), depth: (h.y - k.y) / len });
+        valid.push({ t: sig.real(s.t + (refined ? s.depthLegs.offset : 0)), depth: (h.y - k.y) / len });
       }
       const depth = median(valid.map(v => v.depth));
       const agree = valid.filter(v => Math.abs(v.depth - depth) <= 0.12);
-      // The optional detector samples dropouts at about 30 Hz even in slow-motion clips.
       const recovered = frames.filter(s => s.recoveredLeg?.side === side).length;
-      const count = recovered >= 3 ? frames.filter(s => s.pose).length + recovered : frames.length;
+      const count = !refined && recovered >= 3 ? frames.filter(s => s.pose).length + recovered : frames.length;
       if (agree.length >= 3 && agree.length >= count / 2 && agree[0].t <= bottom && agree.at(-1).t >= bottom &&
           agree.at(-1).t - agree[0].t >= half * 0.5) estimates.push({ side, depth });
+    }
+    return estimates;
+  }
+  return bottom => {
+    const refined = sig.samples.filter(s => s.depthLegs && Math.abs(sig.real(s.t + s.depthLegs.offset) - bottom) <= half);
+    let estimates = refined.length ? estimatesAt(bottom, refined, true) : [];
+    // A slow-motion setting change or a missing detector window can leave too few
+    // new observations. Evaluate the primary track independently, never mixing votes.
+    if (!estimates.length) {
+      const primary = sig.samples.filter(s => Math.abs(sig.real(s.t) - bottom) <= half);
+      estimates = estimatesAt(bottom, primary, false);
     }
     if (estimates.length === 2 && Math.abs(estimates[0].depth - estimates[1].depth) > 0.15) return null;
     return (estimates.find(e => e.side === sig.side) ?? estimates[0])?.depth ?? null;
@@ -798,8 +813,8 @@ function reps(sig, opts, lift) {
 
   const lean = (p) => { const sh = L(p, "Shoulder"), hp = L(p, "Hip"); return seen(sh, hp) ? leanOf(sh, hp, facing) : NaN; };
   const at = (i) => (side ? poseAt(clamp(i, 0, n - 1)) : null);
-  const depthAt = lift === "squat" && side ? squatDepthReader(sig, facingFrom === "guess" ? 0 : facing) : null;
-  const squatLean = depthAt && facingFrom !== "guess" ? squatLeanReader(sig, facing) : null;
+  const depthAt = lift === "squat" && (side || sig.samples.some(s => s.depthLegs)) ? squatDepthReader(sig, facingFrom === "guess" ? 0 : facing) : null;
+  const squatLean = side && depthAt && facingFrom !== "guess" ? squatLeanReader(sig, facing) : null;
   // the lifting phase's ends between frames: where the speed crosses 0.02 m/s (at 60 fps a whole frame is ~2% of a rep)
   const rise = (u0, u1) => {
     const ts = u0 > 0 && vy[u0 - 1] < vy[u0] ? u0 - clamp((vy[u0] - MOVE) / (vy[u0] - vy[u0 - 1]), 0, 1) : u0;
@@ -837,11 +852,9 @@ function reps(sig, opts, lift) {
     let i3 = u0;
     while (i3 < u1 && Math.abs(H[i3] - H[u0]) < r.rom / 3) i3++;
     const mostLean = (a, b) => { let m = -Infinity; for (let i = a; i <= b; i += Math.max(1, Math.round(fs / 30))) { const p = at(i); const l = p ? lean(p) : NaN; if (Number.isFinite(l)) m = Math.max(m, l); } return m; };
+    if (depthAt) r.depth = depthAt(sig.T[f.p]);
+    if (squatLean) Object.assign(r, squatLean(sig.T[f.p], sig.T[u0], sig.T[i3]));
     if (side) {
-      if (lift === "squat") {
-        r.depth = depthAt(sig.T[f.p]);
-        if (squatLean) Object.assign(r, squatLean(sig.T[f.p], sig.T[u0], sig.T[i3]));
-      }
       if (lift === "deadlift") {
         const l0 = at(f.begin) && lean(at(f.begin));
         r.hipsFirst = Number.isFinite(l0) ? mostLean(f.begin, i3) - l0 : null; // + = the torso tips forward: hips rose first
@@ -950,7 +963,7 @@ function reps(sig, opts, lift) {
       else if (sh.depth < 0) chk("depth", "warning", tr("check.depth.high", { n: sh.n, cm: num(-sh.depth * THIGH_CM, 0) }));
       else chk("depth", "good", tr(sq && R.length > 1 ? "check.depth.good" : "check.depth.goodOne", { n: sh.n }));
     }
-    if (side && !sq) {
+    if (depthAt && !sq) {
       const unclear = R.filter(r => r.depth == null);
       chk("depth", "info", tr("check.depth.unclear", { n: unclear.length, reps: unclear.map(r => r.n).join(", ") }));
     }

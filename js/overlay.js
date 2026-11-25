@@ -40,7 +40,13 @@ export function draw(canvas, scene) {
   ctx.lineCap = "round"; ctx.lineJoin = "round";
 
   if (scene.pose) {
-    const P = scene.pose;
+    const P = scene.pose.slice();
+    if (scene.depthLegs) {
+      for (const [side, i] of [["l", 0], ["r", 1]]) {
+        const leg = scene.depthLegs[side];
+        P[23 + i] = leg.hip; P[25 + i] = leg.knee; P[27 + i] = leg.ankle;
+      }
+    }
     for (const [a, b] of BONES) {
       if (P[a].v < 0.3 || P[b].v < 0.3) continue;
       const near = scene.side && (a % 2 === (scene.side === "l" ? 1 : 0)) && (b % 2 === (scene.side === "l" ? 1 : 0));
@@ -50,11 +56,13 @@ export function draw(canvas, scene) {
       if (P[j].v < 0.3) continue;
       ctx.beginPath(); ctx.arc(X(P[j].x), X(P[j].y), 3, 0, 7); ctx.fillStyle = "#fff"; ctx.fill();
     }
-  } else if (scene.recoveredLeg) {
-    const { hip, knee, ankle } = scene.recoveredLeg;
-    halo(ctx, () => {
-      ctx.beginPath(); ctx.moveTo(X(hip.x), X(hip.y)); ctx.lineTo(X(knee.x), X(knee.y)); ctx.lineTo(X(ankle.x), X(ankle.y));
-    }, 2.5, "#fff");
+  } else if (scene.depthLegs || scene.recoveredLeg) {
+    const { hip, knee, ankle } = scene.depthLegs?.[scene.side || "r"] ?? scene.recoveredLeg;
+    if (Math.min(hip.v, knee.v, ankle.v) >= 0.3) {
+      halo(ctx, () => {
+        ctx.beginPath(); ctx.moveTo(X(hip.x), X(hip.y)); ctx.lineTo(X(knee.x), X(knee.y)); ctx.lineTo(X(ankle.x), X(ankle.y));
+      }, 2.5, "#fff");
+    }
   }
 
   const T = scene.trail;

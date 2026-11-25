@@ -69,14 +69,14 @@ shoulders; where the bar finishes), from the bar alone otherwise — and can be 
 
 ```bash
 npm install                 # playwright-core, for tests and icons only
-npm run vendor              # MediaPipe runtime + pose models into vendor/ (~33 MB, not committed)
+npm run vendor              # pinned body-tracking runtimes and models into vendor/ (not committed)
 npm run serve               # http://localhost:8765
 ```
 
 ## Publish and share
 
 `.github/workflows/pages.yml` publishes the app to GitHub Pages (<https://croway.github.io/barpath/>) on every
-push to `main`: it fetches MediaPipe (`tools/fetch-vendor.sh`) and uploads only the files the app serves. The
+push to `main`: it fetches the tracking runtimes and models (`tools/fetch-vendor.sh`) and uploads only the files the app serves. The
 public address is also the `canonical` link in `index.html`, which **Share app** hands out when the app runs from
 a development server. Friends' phones download the app (about 20 MB with the pose model) and nothing else; their
 videos stay on their phones.
@@ -153,5 +153,10 @@ model uses a single pass. Squat depth needs several consistent views of the hip 
 at the bottom. The results identify reps with unclear depth, and treat near-parallel estimates as observations.
 Reopening a saved lift applies the scoring to its existing samples. Mark again → Analyse runs tracking on the video again.
 Squat tracking has also been checked on recorded sets. The deadlift, bench and press checks have been tested on synthetic lifts.
+
+With full body tracking, squat bottoms get a second pass using RTMPose-m. It seeks a short window around
+each bar reversal and checks the hips and knees on the plate-centred crop. The model (55 MB) and ONNX Runtime
+Web load on demand and are cached for subsequent offline use. “Use results now” skips the remaining checks.
+The primary analysis is available when the additional model cannot load.
 
 MediaPipe is Apache-2.0 (`vendor/mediapipe/LICENSE` after `npm run vendor`).

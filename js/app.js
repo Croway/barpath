@@ -4,6 +4,7 @@ import { PlateTracker, detectAt } from "./plate.js";
 import { analyse, fmtSigned, fmtMetric, fmtPlain, LIFTS } from "./analysis.js";
 import * as V from "./video.js";
 import * as Pose from "./pose.js";
+import { refineSquat } from "./squat-pose.js";
 import * as Rec from "./recorder.js";
 import * as Ov from "./overlay.js";
 import { Timeline } from "./trim.js";
@@ -335,11 +336,26 @@ async function run() {
     try { await recovery.finish(ac.signal, update); } catch { /* the primary track is complete */ }
   }
   if (S.abort !== ac || S.mode !== "running") return;
+  if (P?.kind === "full" && !ac.signal.aborted) {
+    const preliminary = analyse(samples, liftOpts());
+    if (preliminary.lift === "squat") {
+      $("btnCancel").textContent = tr("run.skipRecovery");
+      const update = p => progress(p, tr("run.squatDepth"));
+      progress(0, tr("run.loadingSquat"));
+      try {
+        const count = await refineSquat(video, samples, preliminary, S.fps, ac.signal, update);
+        if (!count && !ac.signal.aborted) S.poseNote = tr("run.depthUnavailable");
+      }
+      catch { if (!ac.signal.aborted) S.poseNote = tr("run.depthUnavailable"); }
+    }
+  }
+  if (S.abort !== ac || S.mode !== "running") return;
   S.samples = samples;
   S.runStats = { frames: samples.length, seconds: (performance.now() - began) / 1000, pose: P ? `${P.kind} on ${P.delegate}` : "off" };
   if (P) {
     S.runStats.bodyFrames = samples.filter(s => s.pose).length;
     S.runStats.recoveredFrames = samples.filter(s => s.recoveredLeg).length;
+    S.runStats.depthFrames = samples.filter(s => s.depthLegs).length;
   }
   showResults(true);
   if (S.mode === "results") saveLift(true);
@@ -368,6 +384,7 @@ function runInfo(st) {
   const info = [model];
   if (st.bodyFrames !== undefined) info.push(tr("res.runInfo.coverage", { body: st.bodyFrames, total: st.frames }));
   if (st.recoveredFrames) info.push(tr("res.runInfo.recovered", { n: st.recoveredFrames }));
+  if (st.depthFrames) info.push(tr("res.runInfo.depth", { n: st.depthFrames }));
   return info.join(" ");
 }
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
@@ -551,7 +568,7 @@ function redrawOverlay(t = video.currentTime) {
     const trail = [];
     for (let j = i0; j <= i; j++) trail.push({ x: R.xs[j], y: R.ys[j], k: R.speed[j] / vTop });
     const s = nearestSample(t);
-    Ov.draw(overlay, { W: S.W, H: S.H, plate: { x: R.xs[i], y: R.ys[i], r: R.rs[i] }, trail, pose: s.pose, recoveredLeg: s.recoveredLeg, side: R.side });
+    Ov.draw(overlay, { W: S.W, H: S.H, plate: { x: R.xs[i], y: R.ys[i], r: R.rs[i] }, trail, pose: s.pose, recoveredLeg: s.recoveredLeg, depthLegs: s.depthLegs, side: R.side });
     hud(i);
   } else if (S.mode === "mark") {
     Ov.draw(overlay, { W: S.W, H: S.H, plate: onStart(t) ? S.plate : null }); // the mark belongs to the start frame

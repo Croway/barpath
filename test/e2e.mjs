@@ -349,8 +349,42 @@ await page.waitForFunction(() => window.testCameraTrack.readyState === "ended");
 assert.equal(await page.evaluate(() => document.getElementById("camVideo").srcObject), null, "Close releases a late camera stream");
 }
 
+// Exercise the packaged RTMPose loader, real video decoder timestamps, and cached
+// inference offline. The synthetic clip checks the pipeline; there is no athlete to grade.
+async function checkSquatPass(cancel = false) {
+  const input = await page.evaluateHandle(() => {
+    const el = document.createElement("input");
+    el.type = "file";
+    return el;
+  });
+  await input.asElement().setInputFiles(videoPath);
+  const result = await input.evaluate(async (el, cancel) => {
+    const { load } = await import("./js/video.js"), { refineSquat } = await import("./js/squat-pose.js");
+    const video = document.createElement("video"), url = URL.createObjectURL(el.files[0]);
+    document.body.append(video);
+    try {
+      await load(video, url);
+      const fps = 30, center = 30;
+      const samples = Array.from({ length: 9 }, (_, i) => ({
+        t: (center + i - 4) / fps, x: video.videoWidth / 2, y: video.videoHeight / 2, r: video.videoHeight / 12, ok: true,
+      }));
+      const R = { lift: "squat", fs: fps, slow: 1, plate: 0.45, tVideo: i => i / fps, reps: [{ begin: center - 4, p: center, end: center + 4 }] };
+      const ac = new AbortController();
+      const count = await refineSquat(video, samples, R, fps, ac.signal, p => { if (cancel && p > 0) ac.abort(); });
+      const refined = samples.filter(s => s.depthLegs);
+      return { count, pts: refined.map(s => s.t + s.depthLegs.offset),
+        finite: refined.every(s => Object.values(s.depthLegs.l).every(j => [j.x, j.y, j.v].every(Number.isFinite))) };
+    } finally { video.remove(); URL.revokeObjectURL(url); }
+  }, cancel);
+  await input.dispose();
+  assert.ok(cancel ? result.count === 0 : result.count >= 3, "the packaged model processes complete windows only");
+  assert.equal(result.count, result.pts.length);
+  assert.ok(result.finite && result.pts.every((t, i, a) => !i || t > a[i - 1]), "finite joint observations on distinct decoded frames");
+}
+
 if (checkOffline) {
   await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+  await checkSquatPass();
   await page.evaluate(() => localStorage.setItem("barpath.lang", "it"));
   await ctx.setOffline(true);
   await new Promise((resolve) => {
@@ -364,7 +398,9 @@ if (checkOffline) {
     return responses.map((r) => r.ok);
   });
   assert.deepEqual(models, [true, true], "a fresh installation can open the Italian app and fetch both pose models offline");
-  console.log("offline startup and model cache passed");
+  await checkSquatPass();
+  await checkSquatPass(true);
+  console.log("offline startup, cached squat inference, and cancellation passed");
 }
 console.log(errors.length ? "PAGE ERRORS:\n" + errors.join("\n") : "no page errors");
 await browser.close();

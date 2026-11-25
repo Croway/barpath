@@ -1,4 +1,4 @@
-# Publishes the app to GitHub Pages on every push to main: fetches the pinned MediaPipe runtime and pose models
+# Publishes the app to GitHub Pages on every push to main: fetches the pinned body-tracking runtimes and models
 # (not in git), then uploads only the files the app serves. Tests, tools and videos stay out of the site.
 name: Publish
 
@@ -36,7 +36,11 @@ jobs:
           fi
           npm ci
           npm test
-      - name: MediaPipe into vendor/
+      - uses: actions/cache@v4
+        with:
+          path: vendor/rtmpose-m-384-ort-1.31.1
+          key: squat-pose-assets-${{ hashFiles('tools/fetch-vendor.sh') }}
+      - name: Fetch body-tracking assets
         run: ./tools/fetch-vendor.sh
       - name: The site
         run: |

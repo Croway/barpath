@@ -155,6 +155,26 @@ ok(R.checks.some(c => c.title === "Out of the bottom"), "a stable squat still ge
   ok(D.reps.length === 5 && D.reps.slice(0, 2).every(r => r.depth === null), "missing and collapsed bottom poses are unscored");
   ok(D.reps.slice(2).every(r => r.depth > 0) && !/below parallel/.test(D.title), "keep measured reps without certifying the entire set");
   ok(D.checks.some(c => c.status === "info" && c.text.includes("1, 2")), "list reps with unclear depth");
+  const refined = damaged.map((s, i) => {
+    if (!turns.slice(0, 2).some(t => Math.abs(s.t - t) <= 0.09)) return s;
+    const p = sq[i].pose;
+    const leg = side => ({ hip: p[LM[side + "Hip"]], knee: p[LM[side + "Knee"]], ankle: p[LM[side + "Ankle"]] });
+    return { ...s, depthLegs: { l: leg("l"), r: leg("r"), offset: 0 } };
+  });
+  const replay = analyse(refined, { lift: "squat" });
+  ok(replay.reps.every((r, i) => r.depth === R.reps[i].depth && r.rom === R.reps[i].rom), "refined legs recover missing and misplaced knees without moving the bar events");
+  const secondaryOnly = analyse(refined.map(s => ({ ...s, pose: null })), { lift: "squat" });
+  ok(secondaryOnly.reps.slice(0, 2).every(r => r.depth > 0) && secondaryOnly.checks.some(c => c.status === "info" && c.text.includes("3, 4, 5")),
+    "a partial depth measurement lists every unclear rep even when the primary body track is lost");
+  const hidden = refined.map(s => {
+    if (!s.depthLegs) return s;
+    const weak = leg => ({ ...leg, knee: { ...leg.knee, v: 0.1 } });
+    return { ...s, depthLegs: { l: weak(s.depthLegs.l), r: weak(s.depthLegs.r), offset: 0 } };
+  });
+  ok(analyse(hidden, { lift: "squat" }).reps.slice(0, 2).every(r => r.depth === null), "uncertain replacement joints keep a bottom unscored");
+  const primary = hidden.map((s, i) => ({ ...s, pose: sq[i].pose }));
+  ok(analyse(primary, { lift: "squat" }).reps.every((r, i) => r.depth === R.reps[i].depth),
+    "weak RTMPose frames preserve independently measured primary depths");
   for (const fault of ["inverted", "collapsed", "hidden", "single frame", "unknown facing"]) {
     const altered = sq.map(s => {
       const dt = Math.min(...turns.map(t => Math.abs(s.t - t)));

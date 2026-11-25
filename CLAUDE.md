@@ -31,6 +31,10 @@ is 36 px in radius, and finds it → `pose.js` adds 33 landmarks per frame → `
 lift → `app.js` renders. `analyse()` is pure and re-runs instantly when settings change (plate size, slow-motion
 factor, facing, lift, load kg); only a new plate mark or pose model needs tracking again.
 
+Full tracking on a squat also runs `squat-pose.js` around the bar reversals. Its `depthLegs` observations
+carry a decoder timestamp offset relative to the sample, so trimming preserves the alignment. RTMPose and
+ONNX Runtime are served from versioned vendor assets and cached on demand.
+
 Gallery: every fresh analysis is saved (`store.js`, IndexedDB stores lifts / data / videos, so the list never
 reads videos); a saved lift keeps its samples and settings and reopens by re-running `analyse()`. Settings changed
 on the results update it; Mark again → Analyse replaces it. `compare.js` lines lifts up at `t0i` (τ = s from
