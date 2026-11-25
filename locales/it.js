@@ -211,6 +211,7 @@ export default {
   "res.runInfo.coverage": "Corpo rilevato in {body}/{total} fotogrammi.",
   "res.runInfo.recovered": { one: "Gamba ritrovata in {n} altro fotogramma.", other: "Gamba ritrovata in altri {n} fotogrammi." },
   "run.recoveringBody": "Verifica della gamba nei fotogrammi in cui si è perso il tracciamento del corpo…",
+  "run.skipRecovery": "Usa subito i risultati",
   "status.warning": "Attenzione",
   "status.serious": "Da migliorare",
 
@@ -516,7 +517,7 @@ export default {
   "check.depth.good": "Ogni ripetizione va sotto il parallelo: piega dell'anca sotto il ginocchio, la meno profonda è la {n}.",
   "check.depth.parallel": "La ripetizione {n} sembra arrivare circa al parallelo.",
   "check.depth.high": "La ripetizione {n} sembra fermarsi circa {cm} cm sopra il parallelo.",
-  "check.depth.unclear": "Profondità incerta nelle ripetizioni {reps}. Al punto più basso il tracciamento di anca e ginocchio è poco affidabile.",
+  "check.depth.unclear": { one: "Profondità incerta nella ripetizione {reps}. Al punto più basso il tracciamento di anca e ginocchio è poco affidabile.", other: "Profondità incerta nelle ripetizioni {reps}. Al punto più basso il tracciamento di anca e ginocchio è poco affidabile." },
   "check.outOfBottom.title": "Uscita dalla buca",
   "check.outOfBottom.good": "Petto e anche salgono insieme in uscita dalla buca.",
   "check.outOfBottom.hips": "Le anche salgono più veloci del petto in uscita dalla buca ({deg}° di inclinazione in più alla ripetizione {n}). Spingi la parte alta della schiena contro il bilanciere.",

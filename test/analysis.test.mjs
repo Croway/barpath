@@ -146,6 +146,15 @@ if (process.argv.includes("--ideal")) {
       if (lift.lift !== (overhead ? "snatch" : "clean") || lift.liftFrom !== "body") { fails++; console.log("FAIL finish position", overhead, lift.title); }
       if (!overhead && analyse(withArms, { lift: "snatch" }).lift !== "snatch") { fails++; console.log("FAIL user-selected snatch"); }
     }
+    const caught = R.tVideo(R.ev.catch);
+    const rideDown = bar.map(s => {
+      const p = Array.from({ length: 33 }, () => ({ x: 0, y: 0, v: 0, z: 0 }));
+      p[23] = { x: 500, y: s.t >= caught + 0.12 && s.t <= caught + 0.32 ? 430 : 360, v: 1, z: -1 };
+      p[25] = { x: 600, y: 400, v: 1, z: -1 };
+      return { ...s, pose: p };
+    });
+    const ridden = analyse(rideDown, { lift: "snatch", facing: 1 });
+    if (!ridden.squat || ridden.catchFrom !== "body") { fails++; console.log("FAIL catch ridden down after first stop", ridden.title); }
   }
 } else {
   const file = process.argv[2];

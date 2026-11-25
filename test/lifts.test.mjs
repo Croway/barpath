@@ -184,6 +184,19 @@ ok(R.checks.some(c => c.title === "Out of the bottom"), "a stable squat still ge
   });
   ok(analyse(level, { lift: "squat" }).checks.some(c => c.title === "Depth" && c.status === "info" && /around parallel/.test(c.text)), "a level thigh receives neutral feedback");
 }
+for (const fps of [60, 240]) {
+  const series = set(squat, { reps: 1, first: 1, pause: 0.15, second: [0.8], rest: 0.6, fps });
+  const clean = analyse(series, { lift: "squat" }), bottom = clean.tVideo(clean.reps[0].p);
+  let next = -Infinity;
+  const retried = series.map(s => {
+    if (Math.abs(s.t - bottom) > 0.2) return s;
+    if (s.t < next) return { ...s, pose: null };
+    next = s.t + 0.03;
+    return { ...s, pose: null, recoveredLeg: { side: "l", hip: s.pose[LM.lHip], knee: s.pose[LM.lKnee], ankle: s.pose[LM.lAnkle] } };
+  });
+  const result = analyse(retried, { lift: "squat" });
+  ok(result.reps[0].depth > 0.08, `${fps} fps: consistently recovered leg measures the bottom across a complete pose dropout`);
+}
 // with the load: mean lifting power = (work against gravity + change in the bar's kinetic energy) / time
 {
   const P = analyse(sq, { kg: 100 }), { u0, u1 } = P.reps[0], dur = (u1 - u0) / P.fs;

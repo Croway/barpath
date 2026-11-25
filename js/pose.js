@@ -61,13 +61,13 @@ export function detect(P, source, t, W, H) {
  * stops do we run the more expensive image detector. 60 crops at 320 px use at most 24 MiB. */
 export function recovery(P, W, H, slow = 1) {
   const crops = [], resolution = 320;
-  let last, canvas, ctx, misses = 0, retryAt = -Infinity;
+  let last, canvas, ctx, retryAt = -Infinity;
   const near = p => p[23].z + p[25].z + p[27].z <= p[24].z + p[26].z + p[28].z ? 0 : 1;
   const visible = p => p?.v >= 0.5;
   const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
   function capture(sample, source) {
-    if (sample.pose) { last = sample; misses = 0; retryAt = -Infinity; return; }
+    if (sample.pose) { last = sample; retryAt = -Infinity; return; }
     if (!sample.ok || !last?.ok || sample.t < retryAt || sample.t - last.t > 0.75 * slow || crops.length >= 60) return;
     const prev = last.pose, side = near(prev);
     if (![23, 25, 27].every(i => visible(prev[i + side]))) return;
@@ -77,7 +77,7 @@ export function recovery(P, W, H, slow = 1) {
     if (!(size > 0)) return;
     const x = (left + right - size) / 2 + sample.x - last.x;
     const y = (top + bottom - size) / 2 + sample.y - last.y;
-    if (++misses >= 2) retryAt = sample.t + Math.min(0.12, 0.03 * misses) * slow;
+    retryAt = sample.t + 0.03 * slow;
     if (!canvas) {
       canvas = document.createElement("canvas");
       canvas.width = canvas.height = resolution;

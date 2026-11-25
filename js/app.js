@@ -284,6 +284,7 @@ async function run() {
   if (!S.plate) return;
   stopPlayback();
   setMode("running");
+  $("btnCancel").textContent = tr("common.cancel");
   const ac = new AbortController();
   S.abort = ac;
   const progress = (p, text) => { $("progBar").style.width = `${(100 * clamp(p, 0, 1)).toFixed(1)}%`; $("prog").setAttribute("aria-valuenow", String(Math.round(100 * p))); $("progText").textContent = text; };
@@ -305,6 +306,8 @@ async function run() {
   const samples = [first];
   const end = S.end ?? S.duration;
   const began = performance.now();
+  const resumeVideo = () => { if (!document.hidden && video.paused && !ac.signal.aborted) video.play().catch(() => {}); };
+  document.addEventListener("visibilitychange", resumeVideo);
   try {
     await V.runFrames(video, {
       start: S.start, end, fps: S.fps, signal: ac.signal,
@@ -324,8 +327,9 @@ async function run() {
     if (e?.name !== "AbortError") $("markInstr").textContent = tr("mark.trackingStopped", { error: e?.message || e });
     shown();
     return;
-  }
+  } finally { document.removeEventListener("visibilitychange", resumeVideo); }
   if (recovery?.pending) {
+    $("btnCancel").textContent = tr("run.skipRecovery");
     const update = p => progress(p, tr("run.recoveringBody"));
     update(0);
     try { await recovery.finish(ac.signal, update); } catch { /* the primary track is complete */ }
@@ -342,7 +346,6 @@ async function run() {
 }
 $("btnAnalyse").addEventListener("click", run);
 $("btnCancel").addEventListener("click", () => S.abort?.abort());
-document.addEventListener("visibilitychange", () => { if (!document.hidden && S.mode === "running" && video.paused) video.play().catch(() => {}); });
 
 /* ------------------------------------------------------------------ results */
 const SVG = "http://www.w3.org/2000/svg";

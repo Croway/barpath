@@ -494,8 +494,16 @@ function olympic(sig, opts, forced) {
   let type = forced, typeFrom = "you";
   if (!type) { type = finishPosition(sig, T[iStand], facing); typeFrom = "body"; }
   if (!type) { type = H[iStand] > 1.6 ? "snatch" : "clean"; typeFrom = "bar"; }
-  const catchDepth = side ? squatDepthReader(sig, facingFrom === "bar" ? 0 : facing)(T[iCatch]) : null;
-  const relativeCatch = H[iCatch] / Math.max(0.5, H[iStand]) - (type === "snatch" ? 0.62 : 0.72);
+  let catchDepth = null, depthIndex = iCatch;
+  if (side) {
+    const read = squatDepthReader(sig, facingFrom === "bar" ? 0 : facing);
+    // Some lifters ride the bar down just after its first stop.
+    for (let i = iCatch; i <= Math.min(iStand, iCatch + 0.35 * fs); i += Math.max(1, Math.round(0.04 * fs))) {
+      const d = read(T[i]);
+      if (d !== null && (catchDepth === null || d > catchDepth)) { catchDepth = d; depthIndex = i; }
+    }
+  }
+  const relativeCatch = H[depthIndex] / Math.max(0.5, H[iStand]) - (type === "snatch" ? 0.62 : 0.72);
   let squat = null, catchFrom = "unclear";
   if (catchDepth !== null) {
     // A very low catch paired with an apparently upright thigh (or the reverse) is ambiguous.
@@ -706,7 +714,10 @@ function squatDepthReader(sig, facing) {
       }
       const depth = median(valid.map(v => v.depth));
       const agree = valid.filter(v => Math.abs(v.depth - depth) <= 0.12);
-      if (agree.length >= 3 && agree.length >= frames.length / 2 && agree[0].t <= bottom && agree.at(-1).t >= bottom &&
+      // The optional detector samples dropouts at about 30 Hz even in slow-motion clips.
+      const recovered = frames.filter(s => s.recoveredLeg?.side === side).length;
+      const count = recovered >= 3 ? frames.filter(s => s.pose).length + recovered : frames.length;
+      if (agree.length >= 3 && agree.length >= count / 2 && agree[0].t <= bottom && agree.at(-1).t >= bottom &&
           agree.at(-1).t - agree[0].t >= half * 0.5) estimates.push({ side, depth });
     }
     if (estimates.length === 2 && Math.abs(estimates[0].depth - estimates[1].depth) > 0.15) return null;
@@ -940,7 +951,8 @@ function reps(sig, opts, lift) {
       else chk("depth", "good", tr(sq && R.length > 1 ? "check.depth.good" : "check.depth.goodOne", { n: sh.n }));
     }
     if (side && !sq) {
-      chk("depth", "info", tr("check.depth.unclear", { reps: R.filter(r => r.depth == null).map(r => r.n).join(", ") }));
+      const unclear = R.filter(r => r.depth == null);
+      chk("depth", "info", tr("check.depth.unclear", { n: unclear.length, reps: unclear.map(r => r.n).join(", ") }));
     }
     const cd = worst("chestDrop");
     if (cd) chk("outOfBottom", cd.chestDrop <= 6 ? "good" : cd.chestDrop <= 12 ? "warning" : "serious",

@@ -209,6 +209,7 @@ export default {
   "res.runInfo.coverage": "Body detected in {body}/{total} frames.",
   "res.runInfo.recovered": { one: "Leg recovered in {n} additional frame.", other: "Leg recovered in {n} additional frames." },
   "run.recoveringBody": "Checking the leg in frames where body tracking was lost…",
+  "run.skipRecovery": "Use results now",
   "status.warning": "Watch",
   "status.serious": "Work on",
 
@@ -514,7 +515,7 @@ export default {
   "check.depth.good": "Every rep goes below parallel: hip crease under the knee, shallowest on rep {n}.",
   "check.depth.parallel": "Rep {n} appears around parallel.",
   "check.depth.high": "Rep {n} appears about {cm} cm above parallel.",
-  "check.depth.unclear": "Depth unclear on reps {reps}. The hip and knee could not be tracked reliably at the bottom.",
+  "check.depth.unclear": { one: "Depth unclear on rep {reps}. The hip and knee could not be tracked reliably at the bottom.", other: "Depth unclear on reps {reps}. The hip and knee could not be tracked reliably at the bottom." },
   "check.outOfBottom.title": "Out of the bottom",
   "check.outOfBottom.good": "Chest and hips rise together out of the bottom.",
   "check.outOfBottom.hips": "The hips rise faster than the chest out of the bottom ({deg}° more lean on rep {n}). Drive the upper back up into the bar.",
