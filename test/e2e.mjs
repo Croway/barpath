@@ -271,7 +271,7 @@ await page.goBack(); // the phone's Back: to the gallery
 await page.waitForSelector("#gallery:not([hidden])");
 
 // compare the two
-for (const b of await page.$$("#galList .pick input")) await b.check();
+for (const id of [corrected.id, recentId]) await page.locator(`#galList .lift[data-id="${id}"] .pick input`).check();
 await page.tap("#btnGalCompare");
 await page.waitForSelector("#compare:not([hidden])");
 await page.waitForFunction(() => { const C = window.__barpathCompare; return C.L.length === 2 && C.L.every((l) => l.video.readyState >= 2 && !l.busy); }, null, { timeout: 30000 });
@@ -329,7 +329,7 @@ await page.reload();
 await page.waitForFunction(() => document.getElementById("btnGallery").textContent === "Gallery · 2", null, { timeout: 10000 });
 await page.tap("#btnGallery");
 await page.waitForFunction(() => document.querySelectorAll("#galList .lift").length === 2);
-await (await page.$("#galList .lift:first-child .pick input")).check();
+await page.locator("#galList .lift:first-child .pick input").check();
 await page.tap("#btnGalDelete");
 await page.waitForFunction(() => document.querySelectorAll("#galList .lift").length === 1, null, { timeout: 10000 });
 console.log("after a reload and deleting one:", await page.textContent("#galSummary"));
