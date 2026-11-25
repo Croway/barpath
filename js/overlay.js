@@ -50,6 +50,11 @@ export function draw(canvas, scene) {
       if (P[j].v < 0.3) continue;
       ctx.beginPath(); ctx.arc(X(P[j].x), X(P[j].y), 3, 0, 7); ctx.fillStyle = "#fff"; ctx.fill();
     }
+  } else if (scene.recoveredLeg) {
+    const { hip, knee, ankle } = scene.recoveredLeg;
+    halo(ctx, () => {
+      ctx.beginPath(); ctx.moveTo(X(hip.x), X(hip.y)); ctx.lineTo(X(knee.x), X(knee.y)); ctx.lineTo(X(ankle.x), X(ankle.y));
+    }, 2.5, "#fff");
   }
 
   const T = scene.trail;

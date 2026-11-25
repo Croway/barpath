@@ -300,6 +300,8 @@ async function run() {
   const tracker = new PlateTracker(S.plate.x, S.plate.y, S.plate.r, S.W, S.H);
   if (P) Pose.beginRun(S.start);
   const first = { t: S.start, x: S.plate.x, y: S.plate.y, r: S.plate.r, ok: true, conf: 1, pose: P ? Pose.detect(P, video, S.start, S.W, S.H) : null };
+  const recovery = P?.kind === "full" ? Pose.recovery(P, S.W, S.H, +$("slowmo").value || 1) : null;
+  recovery?.observe(first, video);
   const samples = [first];
   const end = S.end ?? S.duration;
   const began = performance.now();
@@ -311,6 +313,7 @@ async function run() {
         const roi = tracker.roi(t);
         const s = tracker.update(grab(video, roi.sx, roi.sy, roi.sw, roi.sh, roi.w, roi.h), roi, t);
         s.pose = P ? Pose.detect(P, video, t, S.W, S.H) : null;
+        recovery?.observe(s, video);
         samples.push(s);
         Ov.draw(overlay, { W: S.W, H: S.H, plate: s, trail: samples.map((q) => ({ x: q.x, y: q.y, k: null })), pose: s.pose });
       },
@@ -322,8 +325,18 @@ async function run() {
     shown();
     return;
   }
+  if (recovery?.pending) {
+    const update = p => progress(p, tr("run.recoveringBody"));
+    update(0);
+    try { await recovery.finish(ac.signal, update); } catch { /* the primary track is complete */ }
+  }
+  if (S.abort !== ac || S.mode !== "running") return;
   S.samples = samples;
   S.runStats = { frames: samples.length, seconds: (performance.now() - began) / 1000, pose: P ? `${P.kind} on ${P.delegate}` : "off" };
+  if (P) {
+    S.runStats.bodyFrames = samples.filter(s => s.pose).length;
+    S.runStats.recoveredFrames = samples.filter(s => s.recoveredLeg).length;
+  }
   showResults(true);
   if (S.mode === "results") saveLift(true);
 }
@@ -347,7 +360,12 @@ const withUnit = (v, unit) => (!unit ? v : /^[°%]/.test(unit) ? `${v}${unit}` :
 /** how the tracking went: frames, seconds, body tracking (saved as "off" or "<model> on <device>") */
 function runInfo(st) {
   const vars = { n: st.frames, s: num(st.seconds, 0) }, on = /^(\S+) on (\S+)$/.exec(st.pose);
-  return st.pose === "off" ? tr("res.runInfo.off", vars) : on ? tr("res.runInfo.on", { ...vars, model: on[1], device: on[2] }) : tr("res.runInfo.other", { ...vars, pose: String(st.pose) });
+  if (st.pose === "off") return tr("res.runInfo.off", vars);
+  const model = on ? tr("res.runInfo.on", { ...vars, model: on[1], device: on[2] }) : tr("res.runInfo.other", { ...vars, pose: String(st.pose) });
+  const info = [model];
+  if (st.bodyFrames !== undefined) info.push(tr("res.runInfo.coverage", { body: st.bodyFrames, total: st.frames }));
+  if (st.recoveredFrames) info.push(tr("res.runInfo.recovered", { n: st.recoveredFrames }));
+  return info.join(" ");
 }
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
 /** a note above the results: a warning tint and icon */
@@ -426,7 +444,7 @@ function showResults(fresh = false) {
   // reps: mean lifting speed per rep, and every rep's numbers
   $("repsCard").hidden = !R.reps;
   if (R.reps) {
-    const t = $("repsTable"), depth = R.reps.some((r) => r.depth !== undefined && r.depth !== null);
+    const t = $("repsTable"), depth = R.lift === "squat" && R.side;
     t.replaceChildren();
     const head = el("tr");
     for (const [h, u] of [["rep"], ["range", "cm"], ["mean", "m/s"], ["peak", "m/s"], ...(R.kg ? [["power", "W"]] : []), ["down", "s"], ["up", "s"], ...(depth ? [["depth", "cm"]] : [])]) {
@@ -450,7 +468,7 @@ function showResults(fresh = false) {
       row.addEventListener("click", () => setCursor(r.begin, true));
       t.append(row);
     }
-    if (depth) { const row = el("tr"), td = el("td", "n", tr("res.reps.depthNote")); td.colSpan = 8; td.style.textAlign = "left"; row.append(td); t.append(row); }
+    if (depth) { const row = el("tr"), td = el("td", "n", tr("res.reps.depthNote")); td.colSpan = head.children.length; td.style.textAlign = "left"; row.append(td); t.append(row); }
   }
   requestAnimationFrame(() => { for (const b of bar.children) if (b.scrollWidth > b.clientWidth + 1) b.firstChild.textContent = ""; });
 
@@ -460,7 +478,7 @@ function showResults(fresh = false) {
   for (const c of R.checks) {
     const li = el("li");
     const word = tr(`status.${c.status}`);
-    const ico = icon(c.status, `ico ${c.status}`);
+    const ico = icon(c.status === "info" ? "dot" : c.status, `ico ${c.status}`);
     const body = el("div");
     const ttl = el("div", "ttl", c.title);
     ttl.append(el("span", null, word));
@@ -530,7 +548,7 @@ function redrawOverlay(t = video.currentTime) {
     const trail = [];
     for (let j = i0; j <= i; j++) trail.push({ x: R.xs[j], y: R.ys[j], k: R.speed[j] / vTop });
     const s = nearestSample(t);
-    Ov.draw(overlay, { W: S.W, H: S.H, plate: { x: R.xs[i], y: R.ys[i], r: R.rs[i] }, trail, pose: s.pose, side: R.side });
+    Ov.draw(overlay, { W: S.W, H: S.H, plate: { x: R.xs[i], y: R.ys[i], r: R.rs[i] }, trail, pose: s.pose, recoveredLeg: s.recoveredLeg, side: R.side });
     hud(i);
   } else if (S.mode === "mark") {
     Ov.draw(overlay, { W: S.W, H: S.H, plate: onStart(t) ? S.plate : null }); // the mark belongs to the start frame

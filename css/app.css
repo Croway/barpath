@@ -309,6 +309,7 @@ dialog.sheet .actions > * { flex: 1 1 auto; }
 .checks li { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; }
 .ico { width: 24px; height: 24px; flex: none; stroke: none; }
 .ico.good { color: var(--good); --icon-on: var(--good-on); }
+.ico.info { color: var(--muted); }
 .ico.warning { color: var(--warning); --icon-on: var(--warning-on); }
 .ico.serious { color: var(--serious); --icon-on: var(--serious-on); }
 .notes .ico { width: 20px; height: 20px; }

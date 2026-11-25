@@ -147,7 +147,11 @@ Harbili 2012) and are cited in `js/analysis.js`. Body angles come from one camer
 approximate; changes within a rep (chest drop, hips first) hold up better than absolute angles. Power is power
 into the bar only, not the lifter's own (which includes moving the body). Peak force reads low on very short spikes (the
 smoothing that calms tracking noise softens them); mean and peak power hold up better. Without body tracking a bench looks like a squat
-to the bar alone, and a strict press like a deadlift: pick the lift. Squat, deadlift, bench and press have so
-far been tested on a synthetic lifter, not on real clips.
+to the bar alone, and a strict press like a deadlift: pick the lift. If the plate hides the lifter, the accurate
+body model can retry the leg on a crop around their last position after plate tracking finishes. The faster
+model uses a single pass. Squat depth needs several consistent views of the hip and knee
+at the bottom. The results identify reps with unclear depth, and treat near-parallel estimates as observations.
+Reopening a saved lift applies the scoring to its existing samples. Mark again → Analyse runs tracking on the video again.
+Squat tracking has also been checked on recorded sets. The deadlift, bench and press checks have been tested on synthetic lifts.
 
 MediaPipe is Apache-2.0 (`vendor/mediapipe/LICENSE` after `npm run vendor`).

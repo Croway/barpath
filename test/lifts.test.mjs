@@ -137,6 +137,53 @@ near(R.metrics.find((m) => m.label === "Velocity loss").value, 100 * (1 - 0.8 / 
 ok(R.checks.find((c) => c.title === "Velocity loss")?.status === "warning", "33% velocity loss: past 20%, short of 40%");
 ok(R.checks.find((c) => c.title === "Depth")?.status === "good", "depth: below parallel");
 ok(/below parallel/.test(R.title), "title says below parallel");
+ok(R.checks.some(c => c.title === "Out of the bottom"), "a stable squat still gets a torso check");
+// Plate tracking still counts the rep when poses disappear at the turn or the detected thigh collapses.
+{
+  const turns = R.reps.map(r => R.tVideo(r.p));
+  const damaged = sq.map(s => {
+    if (Math.abs(s.t - turns[0]) < 0.075) return { ...s, pose: null };
+    if (Math.abs(s.t - turns[1]) > 0.075) return s;
+    const pose = s.pose.slice();
+    for (const side of ["l", "r"]) {
+      const h = pose[LM[side + "Hip"]];
+      pose[LM[side + "Knee"]] = { ...h, x: h.x - 1, y: h.y + 12 };
+    }
+    return { ...s, pose };
+  });
+  const D = analyse(damaged, { lift: "squat" });
+  ok(D.reps.length === 5 && D.reps.slice(0, 2).every(r => r.depth === null), "missing and collapsed bottom poses are unscored");
+  ok(D.reps.slice(2).every(r => r.depth > 0) && !/below parallel/.test(D.title), "keep measured reps without certifying the entire set");
+  ok(D.checks.some(c => c.status === "info" && c.text.includes("1, 2")), "list reps with unclear depth");
+  for (const fault of ["inverted", "collapsed", "hidden", "single frame", "unknown facing"]) {
+    const altered = sq.map(s => {
+      const dt = Math.min(...turns.map(t => Math.abs(s.t - t)));
+      if (fault !== "unknown facing" && (dt >= 0.15 || (fault === "single frame" && dt < 0.008))) return s;
+      const pose = s.pose.slice();
+      for (const side of ["l", "r"]) {
+        const sh = LM[side + "Shoulder"], hip = pose[LM[side + "Hip"]], toe = LM[side + "Toe"];
+        if (fault === "inverted") pose[sh] = { ...pose[sh], y: hip.y + 20 };
+        else if (fault === "collapsed") pose[sh] = { ...pose[sh], x: hip.x, y: hip.y - 60 };
+        else if (fault === "unknown facing") pose[toe] = { ...pose[toe], v: 0.2 };
+        else pose[sh] = { ...pose[sh], v: 0.2 };
+      }
+      return { ...s, pose };
+    });
+    const result = analyse(altered, { lift: "squat" });
+    ok(!result.checks.some(c => c.title === "Out of the bottom"), `${fault}: no torso cue`);
+    ok(result.reps.length === R.reps.length && result.reps.every((r, i) => r.depth === R.reps[i].depth && r.rom === R.reps[i].rom),
+      `${fault}: bar range and depth preserved for every rep`);
+  }
+  const level = sq.map(s => {
+    if (!turns.some(t => Math.abs(s.t - t) < 0.075)) return s;
+    const pose = s.pose.slice();
+    for (const side of ["l", "r"]) {
+      const k = LM[side + "Knee"]; pose[k] = { ...pose[k], y: pose[LM[side + "Hip"]].y };
+    }
+    return { ...s, pose };
+  });
+  ok(analyse(level, { lift: "squat" }).checks.some(c => c.title === "Depth" && c.status === "info" && /around parallel/.test(c.text)), "a level thigh receives neutral feedback");
+}
 // with the load: mean lifting power = (work against gravity + change in the bar's kinetic energy) / time
 {
   const P = analyse(sq, { kg: 100 }), { u0, u1 } = P.reps[0], dur = (u1 - u0) / P.fs;

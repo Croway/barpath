@@ -128,6 +128,25 @@ if (process.argv.includes("--ideal")) {
     // positions can't keep (a real bar's acceleration is smoother). Hence the wider margin, and "approx." in the app.
     expect("peak force N", M["Peak force on the bar"], fPeak, 0.2 * fPeak);
   }
+  // A plate can hide the nose at the stand. A forward bent arm is a clean even
+  // if the wrist is above the estimated nose; an extended overhead arm is a snatch.
+  {
+    const bar = ideal(60), R = analyse(bar), finish = R.tVideo(R.ev.stand);
+    for (const overhead of [false, true]) {
+      const withArms = bar.map(s => {
+        if (Math.abs(s.t - finish) > 0.2) return s;
+        const p = Array.from({ length: 33 }, () => ({ x: 0, y: 0, v: 0, z: 0 }));
+        const joint = (i, x, y) => { p[i] = { x, y, v: 0.9, z: 0 }; };
+        joint(0, 500, 325); joint(11, 500, 300); joint(23, 500, 450);
+        joint(13, overhead ? 500 : 570, overhead ? 233 : 300);
+        joint(15, overhead ? 500 : 510, overhead ? 165 : 291);
+        return { ...s, pose: p };
+      });
+      const lift = analyse(withArms, { facing: 1 });
+      if (lift.lift !== (overhead ? "snatch" : "clean") || lift.liftFrom !== "body") { fails++; console.log("FAIL finish position", overhead, lift.title); }
+      if (!overhead && analyse(withArms, { lift: "snatch" }).lift !== "snatch") { fails++; console.log("FAIL user-selected snatch"); }
+    }
+  }
 } else {
   const file = process.argv[2];
   const S = JSON.parse(readFileSync(file.replace(/\.\w+$/, ".samples.json"), "utf8"));

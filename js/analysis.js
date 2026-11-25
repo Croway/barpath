@@ -176,6 +176,31 @@ function prepare(samples, opts) {
 }
 
 const seen = (...pts) => pts.every((p) => p && p.v > 0.3);
+const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+// A front rack can hide the face behind the plate. Look for a sustained arm position at the stand.
+function finishPosition(sig, stand, facing) {
+  if (!sig.side) return null;
+  const votes = [];
+  for (const s of sig.samples) {
+    const t = sig.real(s.t);
+    if (Math.abs(t - stand) > 0.15 || !s.pose) continue;
+    const joint = (name) => sig.L(s.pose, name);
+    const sh = joint("Shoulder"), el = joint("Elbow"), wr = joint("Wrist"), hp = joint("Hip");
+    if (![sh, el, wr, hp].every(p => p.v >= 0.5)) continue;
+    const torso = distance(sh, hp), bend = angle(sh, el, wr);
+    if (torso <= 0 || distance(sh, el) < 0.1 * torso) continue;
+    const height = (sh.y - wr.y) / torso;
+    const overhead = height > 0.65 && el.y < sh.y && bend > 145;
+    const rack = Math.abs(height) < 0.45 && facing * (el.x - sh.x) > 0.12 * torso && bend < 155;
+    votes.push({ t, type: overhead ? "snatch" : rack ? "clean" : null });
+  }
+  for (const type of ["snatch", "clean"]) {
+    const agree = votes.filter(v => v.type === type);
+    if (agree.length >= 3 && agree.length >= 0.7 * votes.length && agree.at(-1).t - agree[0].t >= 0.06) return type;
+  }
+  return null;
+}
 /** torso lean from vertical, degrees: + forward (shoulders ahead of the hips, the way the lifter faces), − back */
 const leanOf = (sh, hp, facing) => (Math.atan2(facing * (sh.x - hp.x), hp.y - sh.y) * 180) / Math.PI;
 
@@ -467,25 +492,18 @@ function olympic(sig, opts, forced) {
 
   /* lift type and catch */
   let type = forced, typeFrom = "you";
-  const ps = poseAt(iStand);
-  if (!type && ps && side) {
-    const wrist = ps[LM[side + "Wrist"]], nose = ps[LM.nose];
-    if (wrist.v > 0.3 && nose.v > 0.3) { type = wrist.y < nose.y ? "snatch" : "clean"; typeFrom = "body"; }
-  }
+  if (!type) { type = finishPosition(sig, T[iStand], facing); typeFrom = "body"; }
   if (!type) { type = H[iStand] > 1.6 ? "snatch" : "clean"; typeFrom = "bar"; }
-  let squat = null, catchFrom = "bar";
-  if (knee) {
-    // hips below the knees at the bottom of the catch (image y grows downward)
-    let below = 0, seen = 0;
-    for (let i = iCatch; i <= Math.min(n - 1, iCatch + Math.round(0.35 * fs)); i += Math.max(1, Math.round(fs / 30))) {
-      const p = poseAt(i);
-      if (!p) continue;
-      const hip = p[LM[side + "Hip"]], kn = p[LM[side + "Knee"]];
-      if (hip.v > 0.3 && kn.v > 0.3) { seen++; if (hip.y >= kn.y) below++; }
-    }
-    if (seen >= 2) { squat = below > 0; catchFrom = "body"; }
+  const catchDepth = side ? squatDepthReader(sig, facingFrom === "bar" ? 0 : facing)(T[iCatch]) : null;
+  const relativeCatch = H[iCatch] / Math.max(0.5, H[iStand]) - (type === "snatch" ? 0.62 : 0.72);
+  let squat = null, catchFrom = "unclear";
+  if (catchDepth !== null) {
+    // A very low catch paired with an apparently upright thigh (or the reverse) is ambiguous.
+    const conflict = Math.abs(relativeCatch) > 0.12 && (relativeCatch < 0) !== (catchDepth > 0);
+    if (Math.abs(catchDepth) > PARALLEL_BAND && !conflict) { squat = catchDepth > 0; catchFrom = "body"; }
+  } else {
+    if (Math.abs(relativeCatch) > 0.03) { squat = relativeCatch < 0; catchFrom = "bar"; }
   }
-  if (squat === null) squat = H[iCatch] / Math.max(0.5, H[iStand]) < (type === "snatch" ? 0.62 : 0.72);
 
   /* jerk after a clean: dip, drive, catch overhead */
   let jerk = null;
@@ -624,7 +642,7 @@ function olympic(sig, opts, forced) {
     ],
     axis: { x: [tr("axis.x.back"), tr("axis.x.forward")], h: tr("axis.h.floor"), t: tr("axis.t.liftoff") },
     // the parts joined by " · " (the gallery splits a title there)
-    title: [LIFTS[type], tr(squat ? "title.catch.squat" : "title.catch.power"), ...(jerk ? [tr(jerk.split === null ? "title.jerk" : jerk.split ? "title.jerk.split" : "title.jerk.power")] : [])].join(" · "),
+    title: [LIFTS[type], tr(squat === null ? "title.catch.unclear" : squat ? "title.catch.squat" : "title.catch.power"), ...(jerk ? [tr(jerk.split === null ? "title.jerk" : jerk.split ? "title.jerk.split" : "title.jerk.power")] : [])].join(" · "),
   };
 }
 
@@ -636,6 +654,65 @@ const REP = { // turn: the first rep's turning point, marked on the path (mark.<
   press: { dir: 1, turn: "lockout", floor: false },
 };
 const THIGH_CM = 45; // a typical thigh, to put squat depth (measured in thigh lengths) into rough centimetres
+const PARALLEL_BAND = 0.08; // a few cm either side of level is indistinguishable in a side-view estimate
+
+// A shoulder hidden by the plate can jump below the hip, or briefly flip the torso nearly
+// horizontal. Check its projected length and require agreement across actual video frames.
+function squatLeanReader(sig, facing) {
+  const frames = sig.samples.filter(s => s.pose).map(s => {
+    const sh = sig.L(s.pose, "Shoulder"), hip = sig.L(s.pose, "Hip");
+    return { t: sig.real(s.t), len: distance(sh, hip), height: hip.y - sh.y,
+      angle: leanOf(sh, hip, facing), visible: Math.min(sh.v, hip.v) >= 0.5 };
+  });
+  const ref = median(frames.filter(v => v.visible).map(v => v.len)), half = Math.max(0.065, 1.6 / sig.fs);
+  const valid = frames.filter(v => v.visible && v.height > 0.25 * ref && v.len >= 0.65 * ref && v.len <= 1.45 * ref);
+  const stable = [];
+  for (let i = 1; i < valid.length - 1; i++) {
+    const a = valid[i - 1], b = valid[i], c = valid[i + 1];
+    if (c.t - a.t <= 2 * half && Math.max(a.angle, b.angle, c.angle) - Math.min(a.angle, b.angle, c.angle) <= 8)
+      stable.push({ t: b.t, angle: median([a.angle, b.angle, c.angle]) });
+  }
+  return (bottom, start, end) => {
+    const base = stable.filter(v => Math.abs(v.t - bottom) <= half);
+    if (base.length < 2 || base[0].t > bottom || base.at(-1).t < bottom) return {};
+    const leanBottom = median(base.map(v => v.angle));
+    const ascent = stable.filter(v => v.t >= start && v.t <= end);
+    return { leanBottom, chestDrop: ascent.length >= 2 ? Math.max(...ascent.map(v => v.angle)) - leanBottom : null };
+  };
+}
+
+// Judge the bottom from distinct observations bracketing the bar's turn. The leg can appear to
+// collapse or point backwards when the plate hides the lifter, even with high model visibility.
+function squatDepthReader(sig, facing) {
+  const legs = ["l", "r"].map(side => {
+    const hip = LM[side + "Hip"], knee = LM[side + "Knee"];
+    const lengths = sig.samples.filter(s => s.pose && seen(s.pose[hip], s.pose[knee])).map(s => distance(s.pose[hip], s.pose[knee]));
+    return { side, hip, knee, reference: median(lengths) };
+  });
+  return (bottom) => {
+    const half = Math.max(0.065, 1.6 / sig.fs);
+    const frames = sig.samples.filter(s => Math.abs(sig.real(s.t) - bottom) <= half);
+    const estimates = [];
+    for (const { side, hip, knee, reference } of legs) {
+      const valid = [];
+      for (const s of frames) {
+        const leg = s.recoveredLeg?.side === side ? s.recoveredLeg : null;
+        const h = s.pose?.[hip] ?? leg?.hip, k = s.pose?.[knee] ?? leg?.knee;
+        if (!h || !k) continue;
+        const len = distance(h, k);
+        if (Math.min(h.v, k.v) < (side === sig.side ? 0.5 : 0.65) || !(len >= 0.5 * reference && len > 0 && len <= 1.6 * reference)) continue;
+        if (facing && facing * (k.x - h.x) < 0) continue;
+        valid.push({ t: sig.real(s.t), depth: (h.y - k.y) / len });
+      }
+      const depth = median(valid.map(v => v.depth));
+      const agree = valid.filter(v => Math.abs(v.depth - depth) <= 0.12);
+      if (agree.length >= 3 && agree.length >= frames.length / 2 && agree[0].t <= bottom && agree.at(-1).t >= bottom &&
+          agree.at(-1).t - agree[0].t >= half * 0.5) estimates.push({ side, depth });
+    }
+    if (estimates.length === 2 && Math.abs(estimates[0].depth - estimates[1].depth) > 0.15) return null;
+    return (estimates.find(e => e.side === sig.side) ?? estimates[0])?.depth ?? null;
+  };
+}
 /** mean lifting speed at a 1-rep max (García-Ramos 2023's pooled figures; deadlift down to 0.14 in powerlifters,
  * Helms 2017: stronger lifters grind slower); said as atMax.<lift> */
 const AT_MAX = { squat: { hi: 0.31 }, deadlift: { hi: 0.32 }, bench: { hi: 0.18 }, press: { hi: 0.19 } };
@@ -710,6 +787,8 @@ function reps(sig, opts, lift) {
 
   const lean = (p) => { const sh = L(p, "Shoulder"), hp = L(p, "Hip"); return seen(sh, hp) ? leanOf(sh, hp, facing) : NaN; };
   const at = (i) => (side ? poseAt(clamp(i, 0, n - 1)) : null);
+  const depthAt = lift === "squat" && side ? squatDepthReader(sig, facingFrom === "guess" ? 0 : facing) : null;
+  const squatLean = depthAt && facingFrom !== "guess" ? squatLeanReader(sig, facing) : null;
   // the lifting phase's ends between frames: where the speed crosses 0.02 m/s (at 60 fps a whole frame is ~2% of a rep)
   const rise = (u0, u1) => {
     const ts = u0 > 0 && vy[u0 - 1] < vy[u0] ? u0 - clamp((vy[u0] - MOVE) / (vy[u0] - vy[u0 - 1]), 0, 1) : u0;
@@ -749,19 +828,8 @@ function reps(sig, opts, lift) {
     const mostLean = (a, b) => { let m = -Infinity; for (let i = a; i <= b; i += Math.max(1, Math.round(fs / 30))) { const p = at(i); const l = p ? lean(p) : NaN; if (Number.isFinite(l)) m = Math.max(m, l); } return m; };
     if (side) {
       if (lift === "squat") {
-        let deep = null;
-        for (let i = p0 - 3; i <= p1 + 3; i++) {
-          const p = at(i);
-          if (!p) continue;
-          const hp = L(p, "Hip"), kn = L(p, "Knee");
-          if (!seen(hp, kn)) continue;
-          const th = Math.hypot(hp.x - kn.x, hp.y - kn.y);
-          if (th > 10) deep = Math.max(deep ?? -9, (hp.y - kn.y) / th); // + = hip crease below the knee
-        }
-        r.depth = deep;
-        const lb = at(f.p) && lean(at(f.p));
-        r.leanBottom = Number.isFinite(lb) ? lb : null;
-        r.chestDrop = Number.isFinite(lb) ? mostLean(u0, i3) - lb : null; // + = the torso tips forward as the hips rise
+        r.depth = depthAt(sig.T[f.p]);
+        if (squatLean) Object.assign(r, squatLean(sig.T[f.p], sig.T[u0], sig.T[i3]));
       }
       if (lift === "deadlift") {
         const l0 = at(f.begin) && lean(at(f.begin));
@@ -839,9 +907,11 @@ function reps(sig, opts, lift) {
     put("bar", "pressDrive", Math.max(...R.map((q) => q.peak)), "m/s");
   }
   const withK = (k) => R.filter((r) => r[k] !== null && r[k] !== undefined && Number.isFinite(r[k]));
-  if (lift === "squat" && withK("depth").length) {
-    const sh = withK("depth").reduce((a, b) => (b.depth < a.depth ? b : a));
-    put("body", "shallowest", sh.depth * THIGH_CM, "cm", tr(sh.depth >= 0 ? "metric.shallowest.noteBelow" : "metric.shallowest.noteAbove", { n: sh.n }));
+  const measured = withK("depth");
+  const shallowest = measured.length ? measured.reduce((a, b) => b.depth < a.depth ? b : a) : null;
+  const sq = measured.length === R.length ? shallowest : null;
+  if (sq) {
+    put("body", "shallowest", sq.depth * THIGH_CM, "cm", tr(sq.depth >= 0 ? "metric.shallowest.noteBelow" : "metric.shallowest.noteAbove", { n: sq.n }));
   }
   // angles from one camera's 2D body landmarks are approximate; the changes within a rep (chest drop, hips first)
   // hold up better than the absolute angles, as a constant error cancels
@@ -863,13 +933,14 @@ function reps(sig, opts, lift) {
   }
   const worst = (k, cmp = (a, b) => b > a) => { const w = withK(k); return w.length ? w.reduce((a, b) => (cmp(a[k], b[k]) ? b : a)) : null; };
   if (lift === "squat") {
-    const sh = worst("depth", (a, b) => b < a);
+    const sh = shallowest;
     if (sh) {
-      const cm = Math.abs(sh.depth) * THIGH_CM;
-      chk("depth", sh.depth >= 0.02 ? "good" : sh.depth >= -0.08 ? "warning" : "serious",
-        sh.depth >= 0.02 ? (R.length > 1 ? tr("check.depth.good", { n: sh.n }) : tr("check.depth.goodOne"))
-          : sh.depth >= -0.08 ? tr("check.depth.parallel", { n: sh.n })
-            : tr("check.depth.high", { n: sh.n, cm: num(cm, 0) }));
+      if (Math.abs(sh.depth) <= PARALLEL_BAND) chk("depth", "info", tr("check.depth.parallel", { n: sh.n }));
+      else if (sh.depth < 0) chk("depth", "warning", tr("check.depth.high", { n: sh.n, cm: num(-sh.depth * THIGH_CM, 0) }));
+      else chk("depth", "good", tr(sq && R.length > 1 ? "check.depth.good" : "check.depth.goodOne", { n: sh.n }));
+    }
+    if (side && !sq) {
+      chk("depth", "info", tr("check.depth.unclear", { reps: R.filter(r => r.depth == null).map(r => r.n).join(", ") }));
     }
     const cd = worst("chestDrop");
     if (cd) chk("outOfBottom", cd.chestDrop <= 6 ? "good" : cd.chestDrop <= 12 ? "warning" : "serious",
@@ -932,17 +1003,16 @@ function reps(sig, opts, lift) {
   const sticky = sticks.length ? sticks.reduce((a, b) => (vy[b.sticking] < vy[a.sticking] ? b : a)) : null;
   let vmaxI = R[0].iPeak;
   for (const r of R) if (vy[r.iPeak] > vy[vmaxI]) vmaxI = r.iPeak;
-  const sq = lift === "squat" ? worst("depth", (a, b) => b < a) : null;
   const tiles = [
     { label: tr("tile.reps"), value: String(R.length), unit: "", note: done.length < R.length ? tr("tile.reps.unfinished") : tr("tile.reps.note", { cm: num(avg("rom") * 100, 0) }) },
     { label: tr("tile.bestSpeed"), value: num(best, 2), unit: "m/s", note: tr("tile.liftingRep", { n: bestRep }) },
     { label: tr("tile.velocityLoss"), value: loss === null ? "–" : String(pct(loss)), unit: loss === null ? "" : "%", note: tr(loss === null ? "tile.velocityLoss.none" : "tile.velocityLoss.note") },
-    lift === "squat" && sq ? { label: tr(sq.depth >= 0 ? "tile.belowParallel" : "tile.aboveParallel"), value: num(Math.abs(sq.depth) * THIGH_CM, 0), unit: "cm", note: tr("tile.shallowest.note", { n: sq.n }) }
+    sq && Math.abs(sq.depth) > PARALLEL_BAND ? { label: tr(sq.depth >= 0 ? "tile.belowParallel" : "tile.aboveParallel"), value: num(Math.abs(sq.depth) * THIGH_CM, 0), unit: "cm", note: tr("tile.shallowest.note", { n: sq.n }) }
       : lift === "bench" ? { label: tr("tile.touchLockout"), value: fmtSigned(avg("shift") * 100, 0), unit: "cm", note: tr("tile.touchLockout.note") }
         : variant ? { label: tr("tile.dip"), value: num(Math.max(...R.map((r) => r.dip)) * 100, 0), unit: "cm", note: tr("tile.dip.note") }
           : { label: tr("tile.rom"), value: num(avg("rom") * 100, 0), unit: "cm", note: tr("tile.rom.note") },
   ];
-  const allDeep = lift === "squat" && withK("depth").length === R.length && R.every((r) => r.depth >= 0.02);
+  const allDeep = sq && sq.depth > PARALLEL_BAND;
 
   return {
     lift, variant, X, H, vx, vy, speed, stageOf, stages, repOf, reps: R, metrics: m, checks, notes, sizeChange,
