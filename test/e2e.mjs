@@ -329,9 +329,10 @@ await page.reload();
 await page.waitForFunction(() => document.getElementById("btnGallery").textContent === "Gallery · 2", null, { timeout: 10000 });
 await page.tap("#btnGallery");
 await page.waitForFunction(() => document.querySelectorAll("#galList .lift").length === 2);
-await page.locator("#galList .lift:first-child .pick input").check();
+await page.locator(`#galList .lift[data-id="${recentId}"] .pick input`).check();
 await page.tap("#btnGalDelete");
 await page.waitForFunction(() => document.querySelectorAll("#galList .lift").length === 1, null, { timeout: 10000 });
+assert.equal(await page.locator(`#galList .lift[data-id="${corrected.id}"]`).count(), 1, "the other lift remains");
 console.log("after a reload and deleting one:", await page.textContent("#galSummary"));
 
 await page.reload();
